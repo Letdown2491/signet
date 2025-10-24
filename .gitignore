@@ -1,0 +1,52 @@
+# Node outputs
+node_modules/
+apps/*/node_modules/
+
+# Build artifacts
+apps/*/dist/
+apps/*/build/
+apps/*/.svelte-kit/
+dist/
+
+# TypeScript output
+**/*.d.ts
+**/*.d.ts.map
+
+# Runtime config / secrets
+config/
+apps/*/config/
+.env
+*.env.local
+signet.json
+connection*.txt
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+
+# Testing
+coverage/
+.nyc_output/
+
+# Build caches
+.vite/
+
+# Misc
+.turbo

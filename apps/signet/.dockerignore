@@ -1,0 +1,27 @@
+node_modules
+npm-debug.log
+pnpm-lock.yaml
+yarn.lock
+.DS_Store
+.svelte-kit
+build
+dist
+
+# Env and config
+.env*
+config/
+*.log
+
+# Database (shouldn't be in image)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Development
+coverage/
+.turbo
+.vscode/
+.idea/
+*.swp
+*.swo

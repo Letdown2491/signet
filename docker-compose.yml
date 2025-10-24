@@ -1,0 +1,58 @@
+services:
+  signet:
+    image: signet:local
+    build:
+      context: ./apps/signet
+    restart: unless-stopped
+    pids_limit: 100
+    mem_limit: 256mb
+    memswap_limit: 256mb
+    volumes:
+      - $HOME/.signet-config:/app/config
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-file:/app/config/signet.db}
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/connection >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  migrations:
+    image: signet:local
+    build:
+      context: ./apps/signet
+    volumes:
+      - $HOME/.signet-config:/app/config
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-file:/app/config/signet.db}
+    restart: no
+    entrypoint: ""
+    command:
+      - npx
+      - prisma
+      - migrate
+      - deploy
+
+  signet-ui:
+    build:
+      context: ./apps/signet-ui
+    restart: unless-stopped
+    depends_on:
+      signet:
+        condition: service_healthy
+    environment:
+      - PORT=${NEW_UI_PORT:-4174}
+      - HOST=0.0.0.0
+      - DAEMON_URL=http://signet:3000
+    ports:
+      - "${NEW_UI_PORT:-4174}:${NEW_UI_PORT:-4174}"

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in</title>
+    <style>
+        body {
+            display: grid;
+            place-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(160deg, #0b1430, #111d43 55%, #060b19);
+            color: #eef2ff;
+            font-family: "Inter", system-ui, sans-serif;
+        }
+        main {
+            width: 100%;
+            max-width: 420px;
+            padding: 2.5rem 2rem;
+            border-radius: 18px;
+            background: rgba(9, 15, 32, 0.9);
+            border: 1px solid rgba(104, 131, 219, 0.35);
+            box-shadow: 0 32px 60px rgba(6, 12, 29, 0.45);
+        }
+        h1 {
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            font-size: 1.9rem;
+            letter-spacing: 0.03em;
+        }
+        label {
+            display: block;
+            margin-bottom: 1.25rem;
+            font-size: 0.9rem;
+            color: #aebdf6;
+        }
+        input {
+            width: 100%;
+            margin-top: 0.45rem;
+            border-radius: 12px;
+            padding: 0.85rem 1rem;
+            border: 1px solid rgba(104, 131, 219, 0.4);
+            background: rgba(8, 12, 27, 0.85);
+            color: inherit;
+            font-size: 1rem;
+        }
+        input:focus {
+            outline: none;
+            border-color: #7fa6ff;
+            box-shadow: 0 0 0 2px rgba(127, 166, 255, 0.25);
+        }
+        button {
+            width: 100%;
+            padding: 0.95rem 1.25rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #7289ff, #59c3ff);
+            color: #050c1a;
+            cursor: pointer;
+            box-shadow: 0 20px 40px rgba(64, 118, 255, 0.3);
+            transition: transform 140ms ease, box-shadow 140ms ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 22px 48px rgba(64, 118, 255, 0.38);
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Sign in to continue</h1>
+    <form action="{{urlPrefix}}/login" method="post">
+        <label>
+            Username or nip05
+            <input type="text" name="username" value="{{nip05}}" required>
+        </label>
+        <label>
+            Password
+            <input type="password" name="password" required>
+        </label>
+        <button type="submit">Sign in</button>
+    </form>
+</main>
+</body>
+</html>

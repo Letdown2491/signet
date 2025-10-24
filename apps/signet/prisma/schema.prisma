@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Request {
+    id            String    @id @default(uuid())
+    keyName       String?
+    createdAt     DateTime  @default(now())
+    processedAt   DateTime?
+    requestId     String
+    remotePubkey  String
+    method        String
+    params        String?
+    allowed       Boolean?
+}
+
+model KeyUser {
+  id                Int                @id @default(autoincrement())
+  keyName           String
+  userPubkey        String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @default(now()) @updatedAt
+  revokedAt         DateTime?
+  lastUsedAt        DateTime?
+  description       String?
+  logs              Log[]
+  signingConditions SigningCondition[]
+  Token             Token[]
+
+  @@unique([keyName, userPubkey], name: "unique_key_user")
+}
+
+model Key {
+  id        Int      @id @default(autoincrement())
+  keyName   String    @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  deletedAt DateTime?
+  pubkey    String
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  domain    String
+  password  String
+  email     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  deletedAt DateTime?
+  pubkey    String
+}
+
+model SigningCondition {
+  id             Int      @id @default(autoincrement())
+  method         String?
+  kind           String?
+  content        String?
+  keyUserKeyName String?
+  allowed        Boolean?
+  keyUserId      Int?
+  KeyUser        KeyUser? @relation(fields: [keyUserId], references: [id])
+}
+
+model Log {
+  id        Int      @id @default(autoincrement())
+  timestamp DateTime
+  type      String
+  method    String?
+  params    String?
+  keyUserId Int?
+  KeyUser   KeyUser? @relation(fields: [keyUserId], references: [id])
+}
+
+model Policy {
+  id          Int          @id @default(autoincrement())
+  name        String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @default(now()) @updatedAt
+  expiresAt   DateTime?
+  deletedAt   DateTime?
+  description String?
+  rules       PolicyRule[]
+  Token       Token[]
+}
+
+model PolicyRule {
+  id                Int     @id @default(autoincrement())
+  method            String
+  kind              String?
+  maxUsageCount     Int?
+  currentUsageCount Int?
+  policyId          Int?
+  Policy            Policy? @relation(fields: [policyId], references: [id])
+}
+
+model Token {
+  id         Int       @id @default(autoincrement())
+  keyName    String
+  token      String    @unique
+  clientName String
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  deletedAt  DateTime?
+  expiresAt  DateTime?
+  redeemedAt DateTime?
+  keyUserId  Int?
+  policyId   Int?
+  policy     Policy?   @relation(fields: [policyId], references: [id])
+  KeyUser    KeyUser?  @relation(fields: [keyUserId], references: [id])
+}

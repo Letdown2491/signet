@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Complete Account Creation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 3rem 1rem;
+            background: radial-gradient(circle at top, #1c2541, #0b1320 55%);
+            color: #f5f7ff;
+            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            display: flex;
+            justify-content: center;
+        }
+        form {
+            display: grid;
+            gap: 1.25rem;
+        }
+        main {
+            width: 100%;
+            max-width: 480px;
+            background: rgba(12, 18, 35, 0.92);
+            border: 1px solid rgba(95, 119, 191, 0.35);
+            border-radius: 18px;
+            padding: 2.5rem 2rem;
+            box-shadow: 0 30px 65px rgba(7, 11, 26, 0.55);
+        }
+        h1 {
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            font-size: 1.85rem;
+            letter-spacing: 0.04em;
+        }
+        label {
+            display: block;
+            font-size: 0.9rem;
+            color: #b9c7f1;
+        }
+        input {
+            width: 100%;
+            margin-top: 0.45rem;
+            border-radius: 12px;
+            border: 1px solid rgba(95, 119, 191, 0.45);
+            background: rgba(8, 12, 25, 0.85);
+            color: inherit;
+            padding: 0.85rem 1rem;
+            font-size: 1rem;
+        }
+        input:focus {
+            outline: none;
+            border-color: #6ea9ff;
+            box-shadow: 0 0 0 2px rgba(99, 161, 255, 0.25);
+        }
+        .suffix {
+            position: absolute;
+            inset-inline-end: 1rem;
+            inset-block-start: 50%;
+            transform: translateY(-50%);
+            color: #6ea9ff;
+            font-weight: 600;
+        }
+        .input-with-suffix {
+            position: relative;
+        }
+        button {
+            appearance: none;
+            border: none;
+            border-radius: 12px;
+            padding: 0.95rem 1.25rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #64d8ff, #5c7cff);
+            color: #041022;
+            box-shadow: 0 18px 40px rgba(65, 111, 255, 0.35);
+            transition: transform 160ms ease, box-shadow 160ms ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 20px 45px rgba(65, 111, 255, 0.45);
+        }
+        .error {
+            background: rgba(255, 99, 132, 0.13);
+            border: 1px solid rgba(255, 99, 132, 0.4);
+            border-radius: 10px;
+            padding: 0.85rem 1rem;
+            color: #ff99ac;
+            font-size: 0.95rem;
+        }
+        .hint {
+            font-size: 0.85rem;
+            color: #8c9be0;
+            margin-top: -0.75rem;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Finish creating {{nip05}}</h1>
+
+    {{#if error}}
+        <div class="error">{{error}}</div>
+    {{/if}}
+
+    <form action="{{urlPrefix}}/register/{{record.id}}" method="post">
+        <div>
+            <label>
+                Username
+                <div class="input-with-suffix">
+                    <input type="text" name="username" value="{{username}}" required>
+                    <span class="suffix">@{{domain}}</span>
+                </div>
+            </label>
+        </div>
+
+        <label>
+            Password
+            <input type="password" name="password" minlength="8" required>
+            <div class="hint">Minimum eight characters.</div>
+        </label>
+
+        <label>
+            Email (optional)
+            <input type="email" name="email" value="{{email}}">
+        </label>
+
+        <input type="hidden" name="domain" value="{{domain}}">
+        <input type="hidden" name="callbackUrl" value="{{callbackUrl}}">
+
+        <button type="submit">Create Account</button>
+    </form>
+</main>
+</body>
+</html>
