@@ -13,6 +13,9 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
+# Remove dev dependencies to reduce size
+RUN npm prune --production
+
 # Runtime stage
 FROM node:20.11-alpine AS runtime
 
@@ -22,9 +25,9 @@ RUN apk update && \
     apk add --no-cache openssl wget && \
     rm -rf /var/cache/apk/*
 
-# Copy package files and install production dependencies
+# Copy package files and node_modules from build stage
 COPY --from=build /app/package*.json ./
-RUN npm install --only=production
+COPY --from=build /app/node_modules ./node_modules
 
 # Copy Prisma schema and generate client
 COPY --from=build /app/prisma ./prisma
