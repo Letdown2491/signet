@@ -76,6 +76,9 @@ default = {
         "key": "",
         "notifyAdminsOnBoot": False
     },
+    "authPort": 3000,
+    "authHost": "0.0.0.0",
+    "baseUrl": "http://localhost:3000",
     "database": "sqlite://signet.db",
     "logs": "./signet.log",
     "keys": {},
@@ -87,6 +90,11 @@ if os.path.exists(config_path):
         data = json.load(fh)
 else:
     data = default
+
+# Ensure web server config fields exist
+data.setdefault("authPort", 3000)
+data.setdefault("authHost", "0.0.0.0")
+data.setdefault("baseUrl", "http://localhost:3000")
 
 admin = data.setdefault("admin", {})
 admin_rels = admin.setdefault("adminRelays", ["wss://relay.nsec.app"])
