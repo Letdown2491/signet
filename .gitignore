@@ -12,9 +12,11 @@ dist/
 **/*.d.ts
 **/*.d.ts.map
 
-# Runtime config / secrets
+# Runtime config / secrets (but allow src/config source code)
 config/
 apps/*/config/
+!apps/signet/src/config/
+!apps/signet-ui/src/config/
 .env
 *.env.local
 signet.json

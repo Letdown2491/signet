@@ -7,7 +7,7 @@ yarn.lock
 build
 dist
 
-# Env and config
+# Env and runtime config (src/config source code is included)
 .env*
 config/
 *.log
