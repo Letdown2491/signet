@@ -38,8 +38,8 @@ docker compose up --build
 
 This launches:
 
-- `signet` (daemon, REST+web auth on `http://localhost:3000`)
-- `signet-ui` (React dashboard on `http://localhost:${NEW_UI_PORT:-4174}`)
+- `signet` (daemon, REST+web auth on `http://localhost:3000`). You can change this by uncommenting and editing AUTH_PORT, AUTH_HOST, and BASE_URL in your .env file (recommended) or by directly editing your ~/.signet-config/signet.json and restarting the container.
+- `signet-ui` (React dashboard on `http://localhost:${NEW_UI_PORT:-4174}`). You can change this by uncommenting and editing NEW_UI_PORT in your .env file (recommended) or by directly editing your ~/.signet-config/signet.json and restarting the container.
 - `migrations` (runs Prisma migrations once on boot)
 
 **Add keys via CLI (inside the container, if you skipped the setup script prompts):**
