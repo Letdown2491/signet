@@ -22,11 +22,16 @@ RUN apk update && \
     apk add --no-cache openssl wget && \
     rm -rf /var/cache/apk/*
 
-# Copy built files from the build stage
-COPY --from=build /app .
-
-# Install only runtime dependencies
+# Copy package files and install production dependencies
+COPY --from=build /app/package*.json ./
 RUN npm install --only=production
+
+# Copy Prisma schema and generate client
+COPY --from=build /app/prisma ./prisma
+RUN npx prisma generate
+
+# Copy built application
+COPY --from=build /app/dist ./dist
 
 EXPOSE 3000
 
