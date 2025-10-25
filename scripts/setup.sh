@@ -24,29 +24,35 @@ cat <<'INFO'
 
 Signet provides two ways to manage it:
   1. Web UI (localhost:4174) - View keys, approve requests, manage access
-  2. Admin RPC (optional) - Remote management via Nostr DMs
+  2. Admin RPC (required) - Remote management via Nostr DMs
 
-Most users only need the Web UI. Admin RPC is useful if you want to:
+Admin RPC allows you to:
   • Manage Signet remotely from another device
   • Automate Signet operations programmatically
   • Control it without server access
 
+You must configure at least one admin npub for Signet to start properly.
+
 INFO
 
-read -rp "Enable remote admin management via Nostr DMs? (y/N): " ENABLE_ADMIN
-ADMIN_NPUBS_INPUT=""
-ADMIN_RELAYS_INPUT=""
+echo ""
+echo "Admin RPC allows you to send commands to Signet via encrypted Nostr DMs."
+read -rp "Your admin npub (comma separated if multiple): " ADMIN_NPUBS_INPUT
 
-if [[ "${ENABLE_ADMIN}" =~ ^[Yy]$ ]]; then
-  echo ""
-  echo "Admin RPC allows you to send commands to Signet via encrypted Nostr DMs."
+while [[ -z "${ADMIN_NPUBS_INPUT}" ]]; do
+  echo "!! At least one admin npub is required for Signet to function."
   read -rp "Your admin npub (comma separated if multiple): " ADMIN_NPUBS_INPUT
+done
 
-  DEFAULT_RELAY="wss://relay.nsec.app"
-  echo "Admin commands will be sent/received on these relays."
-  read -rp "Admin relays (comma separated, default ${DEFAULT_RELAY}): " ADMIN_RELAYS_INPUT
-else
-  echo "==> Skipping admin RPC setup. You can manage Signet via the web UI."
+DEFAULT_RELAY="wss://relay.nsec.app"
+echo "Admin commands will be sent/received on these relays."
+read -rp "Admin relays (comma separated, default ${DEFAULT_RELAY}): " ADMIN_RELAYS_INPUT
+
+echo ""
+read -rp "Send Nostr DM on service boot? (y/N): " NOTIFY_ON_BOOT
+NOTIFY_ADMINS_ON_BOOT="false"
+if [[ "${NOTIFY_ON_BOOT}" =~ ^[Yy]$ ]]; then
+  NOTIFY_ADMINS_ON_BOOT="true"
 fi
 
 NOS_RELAYS_DEFAULT="wss://relay.damus.io,wss://relay.primal.net,wss://nos.lol"
@@ -55,7 +61,7 @@ echo "NIP-46 signing requests from clients will use these relays."
 read -rp "NIP-46 relays (comma separated, default ${NOS_RELAYS_DEFAULT}): " NOSTR_RELAYS_INPUT
 ADMIN_SECRET_INPUT=""
 
-python3 - "${CONFIG_FILE}" "${ADMIN_NPUBS_INPUT}" "${ADMIN_RELAYS_INPUT}" "${NOSTR_RELAYS_INPUT}" "${ADMIN_SECRET_INPUT}" <<'PY'
+python3 - "${CONFIG_FILE}" "${ADMIN_NPUBS_INPUT}" "${ADMIN_RELAYS_INPUT}" "${NOSTR_RELAYS_INPUT}" "${ADMIN_SECRET_INPUT}" "${NOTIFY_ADMINS_ON_BOOT}" <<'PY'
 import json
 import os
 import secrets
@@ -67,6 +73,7 @@ admin_input = sys.argv[2]
 admin_relays_input = sys.argv[3]
 nostr_relays_input = sys.argv[4]
 admin_secret_input = sys.argv[5]
+notify_admins_on_boot = sys.argv[6].lower() == "true"
 
 default = {
     "nostr": {"relays": ["wss://relay.damus.io", "wss://relay.primal.net", "wss://nos.lol"]},
@@ -74,7 +81,7 @@ default = {
         "npubs": [],
         "adminRelays": ["wss://relay.nsec.app"],
         "key": "",
-        "notifyAdminsOnBoot": False
+        "notifyAdminsOnBoot": notify_admins_on_boot
     },
     "database": "sqlite://signet.db",
     "logs": "./signet.log",
@@ -96,6 +103,7 @@ if not isinstance(admin_rels, list):
 
 npubs = [npub.strip() for npub in admin_input.split(',') if npub.strip()]
 admin["npubs"] = npubs
+admin["notifyAdminsOnBoot"] = notify_admins_on_boot
 
 if not admin.get("key"):
     admin["key"] = secrets.token_hex(32)
@@ -286,9 +294,5 @@ echo "  2. Visit the web UI: http://localhost:4174"
 echo "  3. Click the 'Keys' tab to view your signing keys and bunker URIs"
 echo "  4. Copy the bunker URI and paste it into your Nostr client (Coracle, Damus, etc.)"
 echo ""
-if [[ "${ENABLE_ADMIN}" =~ ^[Yy]$ ]]; then
-  echo "Admin RPC is enabled. You can send commands via Nostr DMs to Signet."
-else
-  echo "Use the web UI to approve requests and manage Signet."
-fi
+echo "Admin RPC is enabled. You can send commands via Nostr DMs to Signet."
 echo "" 
