@@ -120,8 +120,8 @@ async function resolveBaseUrl(connectionManager: ConnectionManager): Promise<str
     }
 
     const config = await connectionManager.config();
-    // Support both new (EXTERNAL_URL) and legacy (BASE_URL) env var names
-    const baseUrl = config.baseUrl ?? process.env.EXTERNAL_URL ?? process.env.BASE_URL ?? null;
+    // Support both new (UI_URL) and legacy (BASE_URL) env var names
+    const baseUrl = config.baseUrl ?? process.env.UI_URL ?? null;
     cachedBaseUrl = baseUrl;
     return baseUrl;
 }

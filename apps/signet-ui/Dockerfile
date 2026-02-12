@@ -15,12 +15,12 @@ ENV NODE_ENV=production
 COPY --from=build /app/apps/signet-ui/dist ./dist
 COPY --from=build /app/apps/signet-ui/server.mjs ./server.mjs
 # Install server dependencies (pinned to match package.json)
-RUN npm install --no-save express@4 http-proxy-middleware@3
+RUN npm install --no-save express@4 express-rate-limit@7 http-proxy-middleware@3 basic-auth@2
 
 # Environment variables (can be overridden at runtime)
-ENV UI_PORT=4174
-ENV UI_HOST=0.0.0.0
-ENV DAEMON_URL=http://signet:3000
+ENV UI_BIND_PORT=4174
+ENV UI_BIND_ADDRESS=0.0.0.0
+ENV SIGNET_URL=http://signet:3000
 
 EXPOSE 4174
 CMD ["node", "server.mjs"]

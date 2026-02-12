@@ -664,20 +664,25 @@ class Daemon {
 
     private async startWebAuth(): Promise<void> {
         // Support both new (SIGNET_*) and legacy (AUTH_*) env var names
-        const portEnv = process.env.SIGNET_PORT ?? process.env.AUTH_PORT;
-        const authPort = this.config.authPort ?? (portEnv ? parseInt(portEnv, 10) : undefined);
-        if (!authPort) {
-            logger.info('No authPort configured, HTTP server disabled');
-            return;
+        const port = process.env.SIGNET_BIND_PORT ? parseInt(process.env.SIGNET_BIND_PORT) : 3000;
+        const baseUrl = this.config.baseUrl ?? process.env.UI_URL;
+        const bindHost = process.env.SIGNET_BIND_ADDRESS ?? '0.0.0.0';
+        console.log(`Starting HTTP server on ${bindHost}:${port}...`);
+
+        // Load API token from environment variable
+        const apiToken = process.env.SIGNET_API_TOKEN;
+        if (apiToken) {
+            console.log('✓ Using API token from SIGNET_API_TOKEN environment variable');
+        } else {
+            console.log('⚠️  No SIGNET_API_TOKEN set - UI proxy authentication disabled');
         }
 
-        const baseUrl = this.config.baseUrl ?? process.env.EXTERNAL_URL ?? process.env.BASE_URL;
-        logger.info('Starting HTTP server', { port: authPort });
         this.httpServer = new HttpServer({
-            port: authPort,
-            host: this.config.authHost ?? process.env.SIGNET_HOST ?? process.env.AUTH_HOST ?? '0.0.0.0',
+            host: bindHost,
+            port,
             baseUrl,
             jwtSecret: this.config.jwtSecret,
+            apiToken,
             allowedOrigins: this.config.allowedOrigins ?? [],
             requireAuth: this.config.requireAuth ?? false,
             connectionManager: this.connectionManager,
@@ -694,7 +699,7 @@ class Daemon {
         });
 
         await this.httpServer.start();
-        await printServerInfo(authPort);
+        await printServerInfo(bindHost, port);
     }
 
     private loadKeyMaterial(keyName: string, nsec: string): void {

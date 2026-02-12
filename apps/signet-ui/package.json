@@ -16,7 +16,9 @@
   },
   "dependencies": {
     "@signet/types": "workspace:*",
+    "basic-auth": "^2.0.1",
     "debug": "^4.3.4",
+    "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "focus-trap-react": "^11.0.6",
     "html5-qrcode": "^2.3.8",

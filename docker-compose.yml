@@ -9,16 +9,17 @@ services:
     mem_limit: 256mb
     memswap_limit: 256mb
     volumes:
-      - $HOME/.signet-config:/app/config
+      - signet_config:/app/config
     environment:
       DATABASE_URL: ${DATABASE_URL:-file:/app/config/signet.db}
-      SIGNET_PORT: ${SIGNET_PORT:-3000}
-      SIGNET_HOST: ${SIGNET_HOST:-0.0.0.0}
-      EXTERNAL_URL: ${EXTERNAL_URL:-http://localhost:4174}
+      SIGNET_BIND_PORT: ${SIGNET_BIND_PORT:-3000}
+      SIGNET_BIND_ADDRESS: ${SIGNET_BIND_ADDRESS:-0.0.0.0}
+      SIGNET_URL: ${SIGNET_URL:-http://${SIGNET_BIND_PORT:-signet}:${SIGNET_BIND_ADDRESS:-3000}}
+
     ports:
-      - "${SIGNET_PORT:-3000}:${SIGNET_PORT:-3000}"
+      - "${SIGNET_BIND_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${SIGNET_PORT:-3000}/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://${SIGNET_BIND_ADDRESS:-localhost}:${SIGNET_BIND_PORT:-3000}/health >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -33,8 +34,15 @@ services:
       signet:
         condition: service_healthy
     environment:
-      UI_PORT: ${UI_PORT:-4174}
-      UI_HOST: ${UI_HOST:-0.0.0.0}
-      DAEMON_URL: ${DAEMON_URL:-http://signet:${SIGNET_PORT:-3000}}
+      UI_BIND_PORT: ${UI_BIND_PORT:-4174}
+      UI_BIND_ADDRESS: ${UI_BIND_ADDRESS:-0.0.0.0}
+      UI_URL: ${UI_URL:-http://${UI_BIND_PORT:-localhost}:${UI_BIND_ADDRESS:-4174}}
+      SIGNET_URL: ${SIGNET_URL:-http://signet:3000}
+      UI_AUTH_USERNAME: ${UI_AUTH_USERNAME:-}
+      UI_AUTH_PASSWORD: ${UI_AUTH_PASSWORD:-}
     ports:
-      - "${UI_PORT:-4174}:${UI_PORT:-4174}"
+      - "${UI_BIND_PORT:-4174}:${UI_BIND_PORT:-4174}"
+
+volumes:
+  signet_config: {}
+  signet_db: {}

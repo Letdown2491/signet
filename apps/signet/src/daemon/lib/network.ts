@@ -105,8 +105,8 @@ export function getLocalAddresses(): LocalAddress[] {
 /**
  * Print server startup information including local URLs and optionally a QR code.
  */
-export async function printServerInfo(port: number): Promise<void> {
-    logger.info('HTTP server listening', { port });
+export async function printServerInfo(host: string, port: number): Promise<void> {
+    logger.info('HTTP server listening', { port, host });
 
     // In containers, the container's IP isn't useful for external connections
     if (isRunningInContainer()) {

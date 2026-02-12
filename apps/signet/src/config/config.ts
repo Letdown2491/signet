@@ -44,7 +44,7 @@ export async function loadConfig(configPath: string): Promise<ConfigFile> {
             authPort: 3000,
             authHost: '127.0.0.1',
             baseUrl: 'http://localhost:4174',
-            requireAuth: false,
+            requireAuth: true,
         };
         needsSave = true;
     } else {

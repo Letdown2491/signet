@@ -5,6 +5,7 @@ import Handlebars from 'handlebars';
 import {
     registerAuthPlugins,
     createAuthMiddleware,
+    createProxyAuthMiddleware,
     createRateLimitMiddleware,
     createCsrfMiddleware,
     generateCsrfToken,
@@ -45,6 +46,7 @@ export interface HttpServerConfig {
     host: string;
     baseUrl?: string;
     jwtSecret?: string;
+    apiToken?: string;
     allowedOrigins: string[];
     requireAuth: boolean;
     connectionManager: ConnectionManager;
@@ -129,7 +131,15 @@ export class HttpServer {
     }
 
     private async setupRoutes(): Promise<void> {
-        const authMiddleware = createAuthMiddleware(this.fastify, this.config.requireAuth);
+        // Proxy authentication - verifies the UI proxy server identity
+        const proxyAuthMiddleware = createProxyAuthMiddleware(this.config.apiToken);
+
+        // User authentication - verifies the end user has a valid JWT session
+        const authMiddleware = createAuthMiddleware(
+            this.fastify,
+            this.config.requireAuth
+        );
+
         const csrfMiddleware = createCsrfMiddleware();
         const rateLimitAuth = createRateLimitMiddleware('auth');
         const rateLimitKeys = createRateLimitMiddleware('keys');
@@ -147,7 +157,8 @@ export class HttpServer {
         });
 
         // CSRF token endpoint - provides a fresh token to the client
-        this.fastify.get('/csrf-token', { preHandler: [authMiddleware] }, async (_request, reply) => {
+        // Requires both proxy auth (if configured) and user JWT session
+        this.fastify.get('/csrf-token', { preHandler: [proxyAuthMiddleware, authMiddleware] }, async (_request, reply) => {
             const token = generateCsrfToken();
             setCsrfCookie(reply, token, useSecureCookies);
             return reply.send({ token });
@@ -160,14 +171,14 @@ export class HttpServer {
             relayService: this.config.relayService,
             getTrustScore: this.config.getTrustScore,
             getTrustScoresForRelays: this.config.getTrustScoresForRelays,
-        }, { auth: [authMiddleware], csrf: [csrfMiddleware] });
+        }, { auth: [proxyAuthMiddleware, authMiddleware], csrf: [csrfMiddleware] });
 
         // Request routes (state-changing, needs CSRF)
         registerRequestRoutes(this.fastify, {
             requestService: this.config.requestService,
             appService: this.config.appService,
         }, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
             rateLimit: [rateLimitAuth],
         });
@@ -176,7 +187,7 @@ export class HttpServer {
         registerKeysRoutes(this.fastify, {
             keyService: this.config.keyService,
         }, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
             rateLimit: [rateLimitKeys],
         });
@@ -185,25 +196,25 @@ export class HttpServer {
         registerAppsRoutes(this.fastify, {
             appService: this.config.appService,
         }, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
         });
 
         // Dashboard routes (GET only, no CSRF needed)
         registerDashboardRoutes(this.fastify, {
             dashboardService: this.config.dashboardService,
-        }, [authMiddleware]);
+        }, [proxyAuthMiddleware, authMiddleware]);
 
         // Token routes (state-changing, needs CSRF)
         registerTokensRoutes(this.fastify, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
             rateLimit: [rateLimitAuth],
         });
 
         // Policy routes (state-changing, needs CSRF)
         registerPoliciesRoutes(this.fastify, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
             rateLimit: [rateLimitAuth],
         });
@@ -211,19 +222,19 @@ export class HttpServer {
         // Events routes (SSE, GET only, no CSRF needed)
         registerEventsRoutes(this.fastify, {
             eventService: this.config.eventService,
-        }, [authMiddleware]);
+        }, [proxyAuthMiddleware, authMiddleware]);
 
         // Nostrconnect routes (state-changing, needs CSRF)
         registerNostrconnectRoutes(this.fastify, {
             appService: this.config.appService,
         }, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
         });
 
         // Dead man's switch routes (state-changing, needs CSRF)
         registerDeadManSwitchRoutes(this.fastify, {
-            auth: [authMiddleware],
+            auth: [proxyAuthMiddleware, authMiddleware],
             csrf: [csrfMiddleware],
         });
 

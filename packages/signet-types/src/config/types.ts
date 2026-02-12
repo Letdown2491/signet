@@ -64,10 +64,6 @@ export interface ConfigFile {
     nostr: NostrConfig;
     /** Admin interface configuration */
     admin: AdminConfig;
-    /** HTTP server port for REST API */
-    authPort?: number;
-    /** HTTP server host binding */
-    authHost?: string;
     /** Public base URL for callbacks */
     baseUrl?: string;
     /** Database connection string */

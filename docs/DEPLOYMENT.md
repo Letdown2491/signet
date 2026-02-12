@@ -18,10 +18,10 @@ You only expose the UI. The daemon doesn't need direct external access - it comm
 
 ### Configuration
 
-Set `EXTERNAL_URL` to your Tailscale hostname so that `auth_url` responses are reachable from other devices on your tailnet:
+Set `UI_URL` to your Tailscale hostname so that `auth_url` responses are reachable from other devices on your tailnet:
 
 ```bash
-EXTERNAL_URL=http://signet.tailnet-name.ts.net:4174 docker compose up --build
+UI_URL=http://signet.tailnet-name.ts.net:4174 docker compose up --build
 ```
 
 Or in `signet.json`:
@@ -59,9 +59,9 @@ Then update your config to use HTTPS:
 
 Note: Tailscale Serve on port 443 means you drop the port from URLs.
 
-### When is EXTERNAL_URL needed?
+### When is UI_URL needed?
 
-| Setup | EXTERNAL_URL |
+| Setup | UI_URL |
 |-------|--------------|
 | Single machine (Signet + apps on same device) | Not needed (localhost works) |
 | Multi-device (Signet on server, apps on phone/laptop) | Required - use Tailscale hostname |
@@ -99,10 +99,10 @@ Use the server's Wireguard IP (e.g., `10.0.0.1`) - this is reachable from all pe
 
 ### Configuration
 
-Set `EXTERNAL_URL` to your Wireguard IP so that `auth_url` responses are reachable from other devices on your VPN:
+Set `UI_URL` to your Wireguard IP so that `auth_url` responses are reachable from other devices on your VPN:
 
 ```bash
-EXTERNAL_URL=http://10.0.0.1:4174 docker compose up --build
+UI_URL=http://10.0.0.1:4174 docker compose up --build
 ```
 
 Or in `signet.json`:
@@ -128,9 +128,9 @@ Some browser features (like clipboard copy) require HTTPS. Unlike Tailscale, Wir
 
 For most private network setups, HTTP is fine.
 
-### When is EXTERNAL_URL needed?
+### When is UI_URL needed?
 
-| Setup | EXTERNAL_URL |
+| Setup | UI_URL |
 |-------|--------------|
 | Single machine (Signet + apps on same device) | Not needed (localhost works) |
 | Multi-device (Signet on server, apps on phone/laptop) | Required - use Wireguard IP |

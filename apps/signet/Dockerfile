@@ -17,7 +17,7 @@ ENV CI=true
 RUN pnpm install --frozen-lockfile
 
 # Ensure better-sqlite3 native bindings are installed (prebuild-install downloads prebuilt binaries)
-RUN cd /app/node_modules/.pnpm/better-sqlite3@12.5.0/node_modules/better-sqlite3 && \
+RUN cd /app/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && \
     npx --yes prebuild-install -d
 
 # Copy source files
@@ -60,8 +60,8 @@ WORKDIR /app/apps/signet
 
 # Environment variables (can be overridden at runtime)
 ENV DATABASE_URL="file:/app/config/signet.db"
-ENV SIGNET_PORT=3000
-ENV SIGNET_HOST=0.0.0.0
+ENV SIGNET_BIND_PORT=3000
+ENV SIGNET_BIND_ADDRESS=0.0.0.0
 
 EXPOSE 3000
 
