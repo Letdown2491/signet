@@ -17,7 +17,7 @@ ENV CI=true
 RUN pnpm install --frozen-lockfile
 
 # Ensure better-sqlite3 native bindings are installed (prebuild-install downloads prebuilt binaries)
-RUN cd /app/node_modules/.pnpm/better-sqlite3@12.5.0/node_modules/better-sqlite3 && \
+RUN cd /app/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && \
     npx --yes prebuild-install -d
 
 # Copy source files
