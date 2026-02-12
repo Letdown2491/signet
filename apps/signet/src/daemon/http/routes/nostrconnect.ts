@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { PreHandlerFull } from '../types.js';
+import type { PreHandlerAuthCsrf } from '../types.js';
 import type { TrustLevel } from '@signet/types';
 import { sendError } from '../../lib/route-errors.js';
 import prisma from '../../../db.js';
@@ -9,6 +9,8 @@ import { emitCurrentStats, getEventService, getNostrconnectService } from '../..
 import type { AppService } from '../../services/index.js';
 import { adminLogRepository } from '../../repositories/admin-log-repository.js';
 import { getClientInfo } from '../../lib/client-info.js';
+import { validateUri, validateAppName, validateRelays, sanitizeString } from '../../lib/validation.js';
+import { logger } from '../../lib/logger.js';
 
 interface NostrconnectRequest {
     uri: string;
@@ -24,7 +26,7 @@ export interface NostrconnectRouteConfig {
 export function registerNostrconnectRoutes(
     fastify: FastifyInstance,
     config: NostrconnectRouteConfig,
-    preHandler: PreHandlerFull
+    preHandler: PreHandlerAuthCsrf
 ): void {
     /**
      * POST /nostrconnect
@@ -36,14 +38,21 @@ export function registerNostrconnectRoutes(
         const body = request.body as NostrconnectRequest;
 
         // Validate required fields
-        if (!body.uri) {
-            return reply.code(400).send({ error: 'uri is required' });
+        const uriResult = validateUri(body.uri);
+        if (!uriResult.valid) {
+            return reply.code(400).send({ error: uriResult.error });
         }
         if (!body.keyName) {
             return reply.code(400).send({ error: 'keyName is required' });
         }
         if (!body.trustLevel || !['paranoid', 'reasonable', 'full'].includes(body.trustLevel)) {
             return reply.code(400).send({ error: 'trustLevel must be paranoid, reasonable, or full' });
+        }
+
+        // Validate optional app name
+        const appNameResult = validateAppName(body.description);
+        if (!appNameResult.valid) {
+            return reply.code(400).send({ error: appNameResult.error });
         }
 
         // Parse the nostrconnect URI
@@ -56,6 +65,15 @@ export function registerNostrconnectRoutes(
         }
 
         const { clientPubkey, relays, secret } = parseResult.data;
+
+        // Validate relay count
+        const relaysResult = validateRelays(relays);
+        if (!relaysResult.valid) {
+            return reply.code(400).send({ error: relaysResult.error });
+        }
+
+        // Sanitize the app name
+        const sanitizedDescription = sanitizeString(body.description);
 
         try {
             // Check if already connected to this app
@@ -88,14 +106,14 @@ export function registerNostrconnectRoutes(
                     revokedAt: null, // Un-revoke if previously revoked
                     suspendedAt: null,
                     suspendUntil: null,
-                    description: body.description || null,
+                    description: sanitizedDescription || null,
                     nostrconnectRelays: JSON.stringify(relays),
                     trustLevel: body.trustLevel,
                 },
                 create: {
                     keyName: body.keyName,
                     userPubkey: clientPubkey,
-                    description: body.description || null,
+                    description: sanitizedDescription || null,
                     nostrconnectRelays: JSON.stringify(relays),
                     trustLevel: body.trustLevel,
                 },
@@ -116,7 +134,7 @@ export function registerNostrconnectRoutes(
             if (!sendResult.success) {
                 // Connection was created but we failed to notify the client
                 // This is not fatal - the client might retry or use our relays
-                console.warn(`[nostrconnect] Failed to send connect response: ${sendResult.error}`);
+                logger.warn('Failed to send nostrconnect response', { error: sendResult.error });
             }
 
             // Set up per-app relay subscription
@@ -134,7 +152,7 @@ export function registerNostrconnectRoutes(
                 eventType: 'app_connected',
                 keyName: body.keyName,
                 appId: keyUser.id,
-                appName: body.description || parseResult.data.name || undefined,
+                appName: sanitizedDescription || parseResult.data.name || undefined,
                 ...clientInfo,
             });
             getEventService().emitAdminEvent(adminLogRepository.toActivityEntry(adminLog));

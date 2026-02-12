@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { HealthStatus, RelayStatusResponse, KeyInfo } from '@signet/types';
 import type { UIHealthStatus } from '../../hooks/useHealth.js';
 import type { DeadManSwitchStatus } from '../../lib/api-client.js';
-import { X, CheckCircle, XCircle, ChevronDown, ChevronUp, Lock, Timer, AlertTriangle } from 'lucide-react';
+import { X, XCircle, ChevronDown, ChevronUp, Timer } from 'lucide-react';
 import { formatUptime, formatRelativeTime } from '../../lib/formatters.js';
 import styles from './SystemStatusModal.module.css';
 
@@ -16,7 +16,7 @@ interface SystemStatusModalProps {
     deadManSwitchCountdown: string;
     deadManSwitchUrgency: 'normal' | 'warning' | 'critical';
     keys: KeyInfo[];
-    onLockNow?: (keyName: string, passphrase: string) => Promise<{ ok: boolean; error?: string }>;
+    onReset?: (keyName: string, passphrase: string) => Promise<{ ok: boolean; error?: string; remainingAttempts?: number }>;
 }
 
 const STATUS_LABELS: Record<UIHealthStatus, string> = {
@@ -24,6 +24,16 @@ const STATUS_LABELS: Record<UIHealthStatus, string> = {
     degraded: 'Degraded',
     offline: 'Offline',
 };
+
+/**
+ * Get CSS class for trust score badge based on score thresholds
+ */
+function getScoreClass(score: number): string {
+    if (score >= 80) return styles.scoreExcellent;
+    if (score >= 60) return styles.scoreGood;
+    if (score >= 40) return styles.scoreFair;
+    return styles.scorePoor;
+}
 
 export function SystemStatusModal({
     open,
@@ -35,50 +45,54 @@ export function SystemStatusModal({
     deadManSwitchCountdown,
     deadManSwitchUrgency,
     keys,
-    onLockNow,
+    onReset,
 }: SystemStatusModalProps) {
     const [relaysExpanded, setRelaysExpanded] = useState(false);
-    const [lockNowDialogOpen, setLockNowDialogOpen] = useState(false);
+    const [resetDialogOpen, setResetDialogOpen] = useState(false);
     const [selectedKeyName, setSelectedKeyName] = useState('');
     const [passphrase, setPassphrase] = useState('');
-    const [lockError, setLockError] = useState<string | null>(null);
-    const [locking, setLocking] = useState(false);
+    const [resetError, setResetError] = useState<string | null>(null);
+    const [remainingAttempts, setRemainingAttempts] = useState<number | undefined>();
+    const [resetting, setResetting] = useState(false);
     const now = Date.now();
 
-    // Get active keys that can be locked
-    const activeKeys = keys.filter(k => k.status === 'online');
+    // Get encrypted keys for reset
+    const encryptedKeys = keys.filter(k => k.isEncrypted);
 
-    const handleLockNow = async () => {
-        if (!onLockNow || !selectedKeyName || !passphrase) return;
+    const handleReset = async () => {
+        if (!onReset || !selectedKeyName || !passphrase) return;
 
-        setLocking(true);
-        setLockError(null);
+        setResetting(true);
+        setResetError(null);
 
-        const result = await onLockNow(selectedKeyName, passphrase);
+        const result = await onReset(selectedKeyName, passphrase);
 
-        setLocking(false);
+        setResetting(false);
 
         if (result.ok) {
-            setLockNowDialogOpen(false);
+            setResetDialogOpen(false);
             setPassphrase('');
             setSelectedKeyName('');
+            setRemainingAttempts(undefined);
         } else {
-            setLockError(result.error ?? 'Failed to trigger lock');
+            setResetError(result.error ?? 'Failed to reset timer');
+            setRemainingAttempts(result.remainingAttempts);
         }
     };
 
-    const openLockDialog = () => {
-        // Pre-select first active key if available
-        if (activeKeys.length > 0 && !selectedKeyName) {
-            setSelectedKeyName(activeKeys[0].name);
+    const openResetDialog = () => {
+        // Pre-select first encrypted key if available
+        if (encryptedKeys.length > 0 && !selectedKeyName) {
+            setSelectedKeyName(encryptedKeys[0].name);
         }
-        setLockNowDialogOpen(true);
+        setResetDialogOpen(true);
     };
 
-    const closeLockDialog = () => {
-        setLockNowDialogOpen(false);
+    const closeResetDialog = () => {
+        setResetDialogOpen(false);
         setPassphrase('');
-        setLockError(null);
+        setResetError(null);
+        setRemainingAttempts(undefined);
     };
 
     const handleBackdropClick = (e: React.MouseEvent) => {
@@ -175,9 +189,27 @@ export function SystemStatusModal({
                                                             : 'Disconnected'}
                                                 </span>
                                             </div>
-                                            <div className={`${styles.relayStatus} ${relay.connected ? styles.connected : styles.disconnected}`}>
-                                                {relay.connected ? <CheckCircle size={18} /> : <XCircle size={18} />}
-                                            </div>
+                                            {relay.connected ? (
+                                                relay.trustScore !== null ? (
+                                                    <span
+                                                        className={`${styles.scoreBadge} ${getScoreClass(relay.trustScore)}`}
+                                                        title={`Trust score: ${relay.trustScore}`}
+                                                    >
+                                                        {relay.trustScore}
+                                                    </span>
+                                                ) : (
+                                                    <span
+                                                        className={`${styles.scoreBadge} ${styles.scoreUnknown}`}
+                                                        title="Trust score unavailable"
+                                                    >
+                                                        ?
+                                                    </span>
+                                                )
+                                            ) : (
+                                                <div className={`${styles.relayStatus} ${styles.disconnected}`}>
+                                                    <XCircle size={18} />
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -195,14 +227,14 @@ export function SystemStatusModal({
                                             {deadManSwitchCountdown}
                                         </span>
                                     </div>
-                                    {onLockNow && activeKeys.length > 0 && (
+                                    {onReset && encryptedKeys.length > 0 && (
                                         <button
                                             type="button"
-                                            className={styles.lockNowButton}
-                                            onClick={openLockDialog}
+                                            className={styles.resetButton}
+                                            onClick={openResetDialog}
                                         >
-                                            <Lock size={14} />
-                                            Lock Now
+                                            <Timer size={14} />
+                                            Reset
                                         </button>
                                     )}
                                 </div>
@@ -216,32 +248,32 @@ export function SystemStatusModal({
                 </div>
             </div>
 
-            {/* Lock Now Confirmation Dialog */}
-            {lockNowDialogOpen && (
+            {/* Reset Inactivity Lock Dialog */}
+            {resetDialogOpen && (
                 <div className={styles.dialogOverlay} role="presentation">
-                    <div className={styles.dialog} role="alertdialog" aria-modal="true" aria-labelledby="lock-dialog-title">
+                    <div className={styles.dialog} role="alertdialog" aria-modal="true" aria-labelledby="reset-dialog-title">
                         <div className={styles.dialogHeader}>
-                            <AlertTriangle size={20} className={styles.dialogIcon} />
-                            <h3 id="lock-dialog-title" className={styles.dialogTitle}>Lock All Keys</h3>
+                            <Timer size={20} className={styles.dialogIcon} />
+                            <h3 id="reset-dialog-title" className={styles.dialogTitle}>Reset Inactivity Lock</h3>
                         </div>
 
                         <p className={styles.dialogDescription}>
-                            This will lock all keys and suspend all connected apps. You will need your passphrase to recover.
+                            Enter your key passphrase to reset the timer.
                         </p>
 
-                        {activeKeys.length > 1 && (
+                        {encryptedKeys.length > 1 && (
                             <div className={styles.dialogField}>
-                                <label htmlFor="lock-key-select" className={styles.dialogLabel}>
+                                <label htmlFor="reset-key-select" className={styles.dialogLabel}>
                                     Key
                                 </label>
                                 <select
-                                    id="lock-key-select"
+                                    id="reset-key-select"
                                     className={styles.dialogSelect}
                                     value={selectedKeyName}
                                     onChange={(e) => setSelectedKeyName(e.target.value)}
-                                    disabled={locking}
+                                    disabled={resetting}
                                 >
-                                    {activeKeys.map((key) => (
+                                    {encryptedKeys.map((key) => (
                                         <option key={key.name} value={key.name}>
                                             {key.name}
                                         </option>
@@ -251,41 +283,46 @@ export function SystemStatusModal({
                         )}
 
                         <div className={styles.dialogField}>
-                            <label htmlFor="lock-passphrase" className={styles.dialogLabel}>
-                                Passphrase for {selectedKeyName || activeKeys[0]?.name}
+                            <label htmlFor="reset-passphrase" className={styles.dialogLabel}>
+                                Passphrase for {selectedKeyName || encryptedKeys[0]?.name}
                             </label>
                             <input
-                                id="lock-passphrase"
+                                id="reset-passphrase"
                                 type="password"
                                 className={styles.dialogInput}
                                 value={passphrase}
                                 onChange={(e) => setPassphrase(e.target.value)}
-                                disabled={locking}
+                                disabled={resetting}
                                 placeholder="Enter passphrase"
                                 autoComplete="current-password"
                             />
                         </div>
 
-                        {lockError && (
-                            <p className={styles.dialogError}>{lockError}</p>
+                        {resetError && (
+                            <p className={styles.dialogError}>
+                                {resetError}
+                                {remainingAttempts !== undefined && remainingAttempts < 5 && (
+                                    <span> ({remainingAttempts} attempts remaining)</span>
+                                )}
+                            </p>
                         )}
 
                         <div className={styles.dialogActions}>
                             <button
                                 type="button"
                                 className={styles.dialogCancelButton}
-                                onClick={closeLockDialog}
-                                disabled={locking}
+                                onClick={closeResetDialog}
+                                disabled={resetting}
                             >
                                 Cancel
                             </button>
                             <button
                                 type="button"
                                 className={styles.dialogConfirmButton}
-                                onClick={handleLockNow}
-                                disabled={locking || !passphrase}
+                                onClick={handleReset}
+                                disabled={resetting || !passphrase}
                             >
-                                {locking ? 'Locking...' : 'Lock Now'}
+                                {resetting ? 'Resetting...' : 'Reset Timer'}
                             </button>
                         </div>
                     </div>

@@ -20,18 +20,37 @@ async function main() {
         })
         .command(
             'add',
-            'Encrypt and store an nsec',
+            'Add a key (nsec or ncryptsec)',
             (command) =>
-                command.option('name', {
-                    alias: 'n',
-                    type: 'string',
-                    demandOption: true,
-                    describe: 'Key label to store the nsec under',
-                }),
+                command
+                    .option('name', {
+                        alias: 'n',
+                        type: 'string',
+                        demandOption: true,
+                        describe: 'Key label to store the key under',
+                    })
+                    .option('no-encrypt', {
+                        type: 'boolean',
+                        describe: 'Store key without encryption (not recommended)',
+                        conflicts: ['nip49', 'legacy'],
+                    })
+                    .option('nip49', {
+                        type: 'boolean',
+                        describe: 'Use NIP-49 encryption (recommended)',
+                        conflicts: ['no-encrypt', 'legacy'],
+                    })
+                    .option('legacy', {
+                        type: 'boolean',
+                        describe: 'Use legacy AES-256-GCM encryption',
+                        conflicts: ['no-encrypt', 'nip49'],
+                    }),
             async (argv) => {
                 await addKey({
                     configPath: argv.config as string,
                     keyName: argv.name as string,
+                    noEncrypt: argv['no-encrypt'] as boolean | undefined,
+                    useNip49: argv.nip49 as boolean | undefined,
+                    useLegacy: argv.legacy as boolean | undefined,
                 });
             }
         )

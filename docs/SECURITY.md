@@ -8,9 +8,12 @@ Within Signet there are two distinct sets of keys:
 
 ### User keys
 
-The keys that users want to sign with. These keys are stored encrypted with a passphrase using AES-256-GCM with authenticated encryption. The encryption key is derived using PBKDF2 with 600,000 iterations (per NIST SP 800-132 recommendations). Every time you start Signet, you must enter the passphrase to decrypt it.
+The keys that users want to sign with. These keys are stored encrypted with a passphrase using one of two formats:
 
-Without this passphrase, keys cannot be used. The authenticated encryption ensures that any tampering with the encrypted data is detected.
+- **NIP-49 (recommended)**: XChaCha20-Poly1305 authenticated encryption with scrypt key derivation. Industry-standard format compatible with other Nostr tools.
+- **Legacy AES-256-GCM**: PBKDF2 key derivation with 600,000 iterations. Still supported for backwards compatibility.
+
+Every time you start Signet, you must enter the passphrase to decrypt the key. Without this passphrase, keys cannot be used. The authenticated encryption ensures that any tampering with the encrypted data is detected.
 
 ### Signet's admin key
 
@@ -111,9 +114,25 @@ Sensitive endpoints are rate-limited to prevent brute-force attacks:
 
 ## Encryption Details
 
-### Key Encryption (AES-256-GCM)
+### Key Encryption
 
-User keys are encrypted using:
+Signet supports two encryption formats for user keys:
+
+#### NIP-49 (Recommended)
+
+The industry-standard format for encrypted Nostr keys:
+
+- **Algorithm**: XChaCha20-Poly1305 (authenticated encryption)
+- **Key derivation**: scrypt (N=2^16, r=8, p=1)
+- **Salt**: 16 bytes, randomly generated per key
+- **Nonce**: 24 bytes, randomly generated per encryption
+- **Format**: Bech32-encoded `ncryptsec1...` string
+
+NIP-49 keys are portable and can be imported/exported to other Nostr tools that support the format.
+
+#### Legacy AES-256-GCM
+
+The original Signet encryption format:
 
 - **Algorithm**: AES-256-GCM (authenticated encryption)
 - **Key derivation**: PBKDF2-HMAC-SHA256
@@ -122,7 +141,7 @@ User keys are encrypted using:
 - **IV/Nonce**: 12 bytes, randomly generated per encryption
 - **Auth tag**: 16 bytes (automatically verified on decryption)
 
-The encrypted format includes a version byte for future compatibility. Legacy keys for nsecbunkerd users are encrypted with AES-256-CBC and should be automatically detected and can be decrypted.
+Legacy keys can be migrated to NIP-49 format via the key details panel in the UI. Keys encrypted with AES-256-CBC (from nsecbunkerd) are also automatically detected and supported.
 
 ### Secret Generation
 
@@ -294,9 +313,16 @@ All administrative actions are logged for security review:
 |------------|-------------|
 | `key_locked` | Key was locked |
 | `key_unlocked` | Key was unlocked |
+| `key_encrypted` | Key was encrypted during creation |
+| `key_migrated` | Key encryption was migrated to NIP-49 |
+| `key_exported` | Key was exported (ncryptsec or nsec) |
+| `app_connected` | App was connected via nostrconnect:// |
 | `app_suspended` | App was suspended |
 | `app_unsuspended` | App was resumed |
+| `auth_failed` | Authentication attempt failed |
 | `daemon_started` | Daemon process started |
+| `panic_triggered` | Dead man switch panic was triggered |
+| `deadman_reset` | Inactivity timer was reset |
 | `command_executed` | Kill switch command was received |
 | `status_checked` | Kill switch status query was received |
 
@@ -337,7 +363,7 @@ Logs are accessible via:
 1. **Use HTTPS**: Set `baseUrl` to an HTTPS URL and use a reverse proxy (nginx, Caddy)
 2. **Restrict origins**: Set `allowedOrigins` to only your UI domain(s)
 3. **Secure the config file**: Restrict file permissions (`chmod 600 signet.json`)
-4. **Use encrypted keys**: Always encrypt keys with strong passphrases
+4. **Use NIP-49 encryption**: Always encrypt keys with strong passphrases using NIP-49 format
 5. **Configure kill switch**: Set up remote lockdown capability via [KILLSWITCH.md](KILLSWITCH.md)
 6. **Review audit logs**: Periodically check the Admin tab for unexpected activity
 7. **Monitor logs**: Enable verbose logging and monitor for suspicious activity

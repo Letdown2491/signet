@@ -1,4 +1,5 @@
 import { nip19 } from 'nostr-tools';
+import { ApiError, TimeoutError } from './api-client.js';
 
 export const toNpub = (hex: string): string => {
   try {
@@ -83,7 +84,6 @@ export const formatFutureDate = (date: string): string => {
   const now = new Date();
   const diffMs = d.getTime() - now.getTime();
   const diffHours = diffMs / (1000 * 60 * 60);
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
   // If less than 24 hours, show time only
   if (diffHours < 24 && diffHours > 0) {
@@ -150,6 +150,26 @@ export const truncateContent = (content: string, maxLength: number = 200): strin
 };
 
 export const buildErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof ApiError) {
+    // For API errors, extract the body message if available
+    if (error.body) {
+      try {
+        const parsed = JSON.parse(error.body);
+        if (parsed.error && typeof parsed.error === 'string') {
+          return parsed.error;
+        }
+      } catch {
+        // Body is not JSON, use it directly if short enough
+        if (error.body.length < 200) {
+          return error.body;
+        }
+      }
+    }
+    return `${error.statusText || 'Error'} (${error.status})`;
+  }
+  if (error instanceof TimeoutError) {
+    return 'Request timed out';
+  }
   if (error instanceof Error) {
     return error.message;
   }
@@ -170,9 +190,146 @@ export interface HelpfulError {
 }
 
 /**
- * Maps common error messages to helpful user-friendly versions
+ * Maps errors to helpful user-friendly versions.
+ * Handles both typed errors (ApiError, TimeoutError) and string messages.
  */
-export const getHelpfulErrorMessage = (error: string, context?: string): HelpfulError => {
+export function getHelpfulErrorMessage(error: unknown): HelpfulError {
+  // Handle typed errors first (more reliable than string matching)
+  if (error instanceof TimeoutError) {
+    return {
+      message: 'Request timed out',
+      action: 'The server took too long to respond. Try again.',
+      canRetry: true,
+    };
+  }
+
+  if (error instanceof ApiError) {
+    return getHelpfulApiError(error);
+  }
+
+  // Fall back to string matching for legacy/unknown errors
+  const errorStr = error instanceof Error ? error.message : String(error);
+  return getHelpfulErrorFromString(errorStr);
+}
+
+/**
+ * Handle ApiError with structured status code checking.
+ */
+function getHelpfulApiError(error: ApiError): HelpfulError {
+  // Check status code first (most reliable)
+  if (error.status === 401) {
+    return {
+      message: 'Session expired',
+      action: 'Please refresh the page and try again',
+      canRetry: false,
+    };
+  }
+
+  if (error.status === 403) {
+    if (error.isCsrfError) {
+      return {
+        message: 'Security token expired',
+        action: 'Please refresh the page and try again',
+        canRetry: false,
+      };
+    }
+    return {
+      message: 'Access denied',
+      action: 'You may not have permission to perform this action',
+      canRetry: false,
+    };
+  }
+
+  if (error.status === 404) {
+    return {
+      message: 'Request not found',
+      action: 'This request may have already been processed',
+      canRetry: false,
+    };
+  }
+
+  if (error.status === 429) {
+    return {
+      message: 'Too many requests',
+      action: 'Please wait a moment before trying again',
+      canRetry: true,
+    };
+  }
+
+  if (error.isServerError) {
+    if (error.status === 502 || error.status === 503 || error.status === 504) {
+      return {
+        message: 'Server is temporarily unavailable',
+        action: 'Please try again in a few moments',
+        canRetry: true,
+      };
+    }
+    return {
+      message: 'Server error',
+      action: 'Please try again in a moment',
+      canRetry: true,
+    };
+  }
+
+  // Check error body for specific messages
+  if (error.body) {
+    const bodyLower = error.body.toLowerCase();
+
+    if (bodyLower.includes('key is locked') || bodyLower.includes('encrypted key')) {
+      return {
+        message: 'This key is locked',
+        action: 'Enter the passphrase to unlock this key',
+        canRetry: false,
+      };
+    }
+
+    if (bodyLower.includes('invalid password') || bodyLower.includes('wrong password') || bodyLower.includes('incorrect passphrase')) {
+      return {
+        message: 'Incorrect passphrase',
+        action: 'Please check your passphrase and try again',
+        canRetry: false,
+      };
+    }
+
+    if (bodyLower.includes('expired') || bodyLower.includes('request expired')) {
+      return {
+        message: 'This request has expired',
+        action: 'Ask the app to send a new request',
+        canRetry: false,
+      };
+    }
+
+    // Try to extract error message from JSON body
+    try {
+      const parsed = JSON.parse(error.body);
+      if (parsed.error && typeof parsed.error === 'string') {
+        return {
+          message: parsed.error,
+          canRetry: error.status < 400 || error.status >= 500,
+        };
+      }
+    } catch {
+      // Not JSON, use body if reasonable length
+      if (error.body.length < 200) {
+        return {
+          message: error.body,
+          canRetry: true,
+        };
+      }
+    }
+  }
+
+  // Fallback for API errors
+  return {
+    message: `Error ${error.status}: ${error.statusText}`,
+    canRetry: true,
+  };
+}
+
+/**
+ * Legacy string-based error matching for non-typed errors.
+ */
+function getHelpfulErrorFromString(error: string): HelpfulError {
   const errorLower = error.toLowerCase();
 
   // Key/passphrase related
@@ -184,7 +341,7 @@ export const getHelpfulErrorMessage = (error: string, context?: string): Helpful
     };
   }
 
-  if (errorLower.includes('invalid password') || errorLower.includes('wrong password')) {
+  if (errorLower.includes('invalid password') || errorLower.includes('wrong password') || errorLower.includes('incorrect passphrase')) {
     return {
       message: 'Incorrect passphrase',
       action: 'Please check your passphrase and try again',
@@ -193,7 +350,7 @@ export const getHelpfulErrorMessage = (error: string, context?: string): Helpful
   }
 
   // Rate limiting
-  if (errorLower.includes('rate limit') || errorLower.includes('too many requests') || errorLower.includes('429')) {
+  if (errorLower.includes('rate limit') || errorLower.includes('too many requests')) {
     return {
       message: 'Too many requests',
       action: 'Please wait a moment before trying again',
@@ -227,36 +384,11 @@ export const getHelpfulErrorMessage = (error: string, context?: string): Helpful
     };
   }
 
-  if (errorLower.includes('unauthorized') || errorLower.includes('authentication required') || errorLower.includes('401')) {
+  if (errorLower.includes('unauthorized') || errorLower.includes('authentication required')) {
     return {
       message: 'Session expired',
       action: 'Please refresh the page and try again',
       canRetry: false,
-    };
-  }
-
-  if (errorLower.includes('not found') || errorLower.includes('404')) {
-    return {
-      message: 'Request not found',
-      action: 'This request may have already been processed',
-      canRetry: false,
-    };
-  }
-
-  // Server errors
-  if (errorLower.includes('500') || errorLower.includes('internal server error')) {
-    return {
-      message: 'Server error',
-      action: 'Please try again in a moment',
-      canRetry: true,
-    };
-  }
-
-  if (errorLower.includes('502') || errorLower.includes('bad gateway')) {
-    return {
-      message: 'Server is temporarily unavailable',
-      action: 'Please try again in a few moments',
-      canRetry: true,
     };
   }
 
@@ -265,4 +397,4 @@ export const getHelpfulErrorMessage = (error: string, context?: string): Helpful
     message: error,
     canRetry: true,
   };
-};
+}

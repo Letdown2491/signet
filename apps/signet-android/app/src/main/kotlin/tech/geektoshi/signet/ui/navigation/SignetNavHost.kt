@@ -1,10 +1,9 @@
 package tech.geektoshi.signet.ui.navigation
 
+import android.widget.Toast
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -33,8 +33,10 @@ import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.model.ConnectedApp
 import tech.geektoshi.signet.data.model.DeadManSwitchStatus
 import tech.geektoshi.signet.data.model.KeyInfo
+import tech.geektoshi.signet.data.repository.DeepLinkRepository
 import tech.geektoshi.signet.data.repository.EventBusRepository
 import tech.geektoshi.signet.data.repository.SettingsRepository
+import tech.geektoshi.signet.ui.components.DeepLinkConnectSheet
 import tech.geektoshi.signet.ui.components.InactivityLockScreen
 import tech.geektoshi.signet.ui.screens.activity.ActivityScreen
 import tech.geektoshi.signet.ui.screens.apps.AppsScreen
@@ -49,6 +51,7 @@ import tech.geektoshi.signet.ui.theme.TextPrimary
 
 @Composable
 fun SignetNavHost(settingsRepository: SettingsRepository) {
+    val context = LocalContext.current
     val daemonUrl by settingsRepository.daemonUrl.collectAsState(initial = "")
 
     // API client for inactivity lock operations
@@ -79,7 +82,7 @@ fun SignetNavHost(settingsRepository: SettingsRepository) {
                 deadManSwitchStatus = client.getDeadManSwitchStatus()
                 keys = client.getKeys().keys
                 apps = client.getApps().apps
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Ignore errors on initial fetch
             }
         }
@@ -121,6 +124,22 @@ fun SignetNavHost(settingsRepository: SettingsRepository) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+
+    // Handle deep links by showing ConnectAppSheet directly (no navigation needed)
+    var showDeepLinkSheet by remember { mutableStateOf(false) }
+    var deepLinkUri by remember { mutableStateOf("") }
+
+    // Observe pendingUri and transfer to local state when ready
+    val pendingUri by DeepLinkRepository.pendingUri.collectAsState()
+
+    // When we have a URI and client is ready, transfer to local state and show sheet
+    // NOTE: Don't call clearPendingUri() here - it causes a race condition that prevents the dialog from showing
+    LaunchedEffect(pendingUri, apiClient) {
+        if (pendingUri != null && apiClient != null && !showDeepLinkSheet) {
+            deepLinkUri = pendingUri!!
+            showDeepLinkSheet = true
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -272,5 +291,31 @@ fun SignetNavHost(settingsRepository: SettingsRepository) {
                 }
             )
         }
+
+    }
+
+    // Deep link connect sheet - dedicated sheet for deep link connections
+    if (showDeepLinkSheet) {
+        DeepLinkConnectSheet(
+            uri = deepLinkUri,
+            keys = keys,
+            daemonUrl = daemonUrl,
+            onDismiss = {
+                showDeepLinkSheet = false
+                deepLinkUri = ""
+                DeepLinkRepository.clearPendingUri()
+            },
+            onSuccess = { warning ->
+                showDeepLinkSheet = false
+                deepLinkUri = ""
+                DeepLinkRepository.clearPendingUri()
+                val message = if (warning != null) {
+                    "App connected, but: $warning"
+                } else {
+                    "App connected successfully"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        )
     }
 }

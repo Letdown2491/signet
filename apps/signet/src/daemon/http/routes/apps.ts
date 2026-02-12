@@ -121,6 +121,48 @@ export function registerAppsRoutes(
         }
     });
 
+    // Suspend all active apps (POST - needs CSRF)
+    fastify.post('/apps/suspend-all', { preHandler: [...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest, reply: FastifyReply) => {
+        const body = request.body as { until?: string } | undefined;
+        let until: Date | undefined;
+
+        if (body?.until) {
+            const parsed = new Date(body.until);
+            if (isNaN(parsed.getTime())) {
+                return reply.code(400).send({ error: 'Invalid date format for "until"' });
+            }
+            if (parsed.getTime() <= Date.now()) {
+                return reply.code(400).send({ error: '"until" must be in the future' });
+            }
+            until = parsed;
+        }
+
+        try {
+            const suspendedCount = await config.appService.suspendAllApps(until);
+
+            // Emit stats update
+            await emitCurrentStats();
+
+            return reply.send({ ok: true, suspendedCount });
+        } catch (error) {
+            return sendError(reply, error);
+        }
+    });
+
+    // Resume all suspended apps (POST - needs CSRF)
+    fastify.post('/apps/resume-all', { preHandler: [...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const resumedCount = await config.appService.unsuspendAllApps();
+
+            // Emit stats update
+            await emitCurrentStats();
+
+            return reply.send({ ok: true, resumedCount });
+        } catch (error) {
+            return sendError(reply, error);
+        }
+    });
+
     // Unsuspend an app (POST - needs CSRF)
     fastify.post('/apps/:id/unsuspend', { preHandler: [...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest, reply: FastifyReply) => {
         const params = request.params as { id: string };

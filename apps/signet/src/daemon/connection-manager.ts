@@ -2,6 +2,8 @@ import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19';
 import { encrypt as nip44Encrypt, getConversationKey } from 'nostr-tools/nip44';
 import { hexToBytes } from './lib/hex.js';
+import { toErrorMessage } from './lib/errors.js';
+import { logger } from './lib/logger.js';
 import createDebug from 'debug';
 import fs from 'fs';
 import path from 'path';
@@ -75,7 +77,7 @@ export class ConnectionManager {
         try {
             this.writeConnectionStrings();
         } catch (error) {
-            console.log(`Failed to initialize connection manager: ${(error as Error).message}`);
+            logger.error('Failed to initialize connection manager', { error: toErrorMessage(error) });
             this.readyResolver?.();
             this.readyResolver = undefined;
         }
@@ -150,7 +152,7 @@ export class ConnectionManager {
         const hexUri = this.buildBunkerUri(this.pubkey, relays, secret);
         const npubUri = this.buildBunkerUri(npub, relays, secret);
 
-        console.log(`\nConnection URI (hex): ${hexUri}\n`);
+        logger.info('Connection URI generated', { uri: hexUri });
 
         const folder = path.dirname(this.configFile);
         fs.mkdirSync(folder, { recursive: true });

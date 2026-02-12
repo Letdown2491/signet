@@ -209,14 +209,29 @@ export class AppService {
 
     /**
      * Suspend all active apps.
-     * Used by the kill switch to quickly disable all app access.
+     * Used by the kill switch and bulk suspend.
+     * @param until - Optional date when suspension should automatically end
      * Returns the count of apps that were suspended.
      */
-    async suspendAllApps(): Promise<number> {
-        const count = await appRepository.suspendAll();
+    async suspendAllApps(until?: Date): Promise<number> {
+        const count = await appRepository.suspendAll(until);
 
         // Emit event for real-time updates
         // We emit a generic "apps updated" event since many apps changed
+        getEventService().emitAppsUpdated();
+
+        return count;
+    }
+
+    /**
+     * Unsuspend all suspended apps.
+     * Used by bulk resume.
+     * Returns the count of apps that were unsuspended.
+     */
+    async unsuspendAllApps(): Promise<number> {
+        const count = await appRepository.unsuspendAll();
+
+        // Emit event for real-time updates
         getEventService().emitAppsUpdated();
 
         return count;

@@ -4,6 +4,7 @@ import prisma from '../db.js';
 import type { ConnectionManager } from './connection-manager.js';
 import { getEventService, emitCurrentStats } from './services/index.js';
 import { requestRepository } from './repositories/request-repository.js';
+import { parseEventPreview } from './lib/parse.js';
 import type { PendingRequest } from '@signet/types';
 import {
     POLL_INITIAL_INTERVAL_MS,
@@ -68,22 +69,7 @@ async function persistRequest(
     const expiresAt = new Date(record.createdAt.getTime() + REQUEST_EXPIRY_MS);
 
     // Parse event preview if this is a sign_event request
-    let eventPreview: PendingRequest['eventPreview'] = null;
-    if (method === 'sign_event' && params) {
-        try {
-            const parsedParams = JSON.parse(params);
-            if (Array.isArray(parsedParams) && parsedParams[0]) {
-                const event = parsedParams[0];
-                eventPreview = {
-                    kind: event.kind,
-                    content: event.content,
-                    tags: event.tags || [],
-                };
-            }
-        } catch {
-            // Ignore parse errors
-        }
-    }
+    const eventPreview = method === 'sign_event' ? parseEventPreview(params) : null;
 
     eventService.emitRequestCreated({
         id: record.id,

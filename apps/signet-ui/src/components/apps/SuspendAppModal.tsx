@@ -4,7 +4,10 @@ import styles from './SuspendAppModal.module.css';
 
 interface SuspendAppModalProps {
   open: boolean;
-  appName: string;
+  /** Single app name for individual suspend */
+  appName?: string;
+  /** Number of apps for bulk suspend (mutually exclusive with appName) */
+  appCount?: number;
   loading: boolean;
   error: string | null;
   onSubmit: (until?: Date) => void;
@@ -14,11 +17,13 @@ interface SuspendAppModalProps {
 export function SuspendAppModal({
   open,
   appName,
+  appCount,
   loading,
   error,
   onSubmit,
   onCancel,
 }: SuspendAppModalProps) {
+  const isBulkMode = appCount !== undefined && appCount > 0;
   const [suspendType, setSuspendType] = useState<'indefinite' | 'until'>('indefinite');
   const [dateValue, setDateValue] = useState('');
   const [timeValue, setTimeValue] = useState('');
@@ -91,12 +96,16 @@ export function SuspendAppModal({
             <Pause size={20} />
           </div>
           <h2 id="suspend-modal-title" className={styles.title}>
-            Suspend App
+            {isBulkMode ? 'Suspend All Apps' : 'Suspend App'}
           </h2>
         </div>
 
         <p className={styles.description}>
-          Suspend <strong>{appName}</strong> to temporarily block all signing requests.
+          {isBulkMode ? (
+            <>Suspend <strong>{appCount} {appCount === 1 ? 'app' : 'apps'}</strong> to temporarily block all signing requests.</>
+          ) : (
+            <>Suspend <strong>{appName}</strong> to temporarily block all signing requests.</>
+          )}
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -174,7 +183,7 @@ export function SuspendAppModal({
                   Suspending...
                 </>
               ) : (
-                'Suspend'
+                isBulkMode ? 'Suspend All' : 'Suspend'
               )}
             </button>
           </div>

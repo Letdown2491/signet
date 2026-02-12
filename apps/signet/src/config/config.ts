@@ -42,7 +42,7 @@ export async function loadConfig(configPath: string): Promise<ConfigFile> {
                 'http://127.0.0.1:3000',
             ],
             authPort: 3000,
-            authHost: '0.0.0.0',
+            authHost: '127.0.0.1',
             baseUrl: 'http://localhost:4174',
             requireAuth: false,
         };
@@ -94,7 +94,7 @@ export async function loadConfig(configPath: string): Promise<ConfigFile> {
 
         // Set default authHost if not present
         if (config.authHost === undefined) {
-            config.authHost = '0.0.0.0';
+            config.authHost = '127.0.0.1';
             needsSave = true;
         }
 

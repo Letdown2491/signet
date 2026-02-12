@@ -1,10 +1,11 @@
-import type { PendingRequest } from '@signet/types';
+import type { PendingRequest, ApprovalType } from '@signet/types';
 import type { StoredKey } from '../../config/types.js';
 import {
     requestRepository,
     type RequestStatus,
     type RequestRecord,
 } from '../repositories/index.js';
+import { parseEventPreview } from '../lib/parse.js';
 
 export interface RequestServiceConfig {
     allKeys: Record<string, StoredKey>;
@@ -56,23 +57,9 @@ export class RequestService {
         const requiresPassword = record.keyName ? !entry?.key : false;
         const expiresAt = record.createdAt.getTime() + this.REQUEST_TTL_MS;
 
-        let eventPreview: PendingRequest['eventPreview'] = null;
-        if (record.method === 'sign_event' && record.params) {
-            try {
-                const parsed = JSON.parse(record.params);
-                // Handle both formats: [event] array or event object directly
-                const event = Array.isArray(parsed) ? parsed[0] : parsed;
-                if (event && typeof event.kind === 'number') {
-                    eventPreview = {
-                        kind: event.kind,
-                        content: event.content,
-                        tags: event.tags || [],
-                    };
-                }
-            } catch {
-                // Ignore parse errors
-            }
-        }
+        const eventPreview = record.method === 'sign_event'
+            ? parseEventPreview(record.params)
+            : null;
 
         return {
             id: record.id,
@@ -87,7 +74,7 @@ export class RequestService {
             requiresPassword,
             processedAt: record.processedAt?.toISOString() ?? null,
             autoApproved: record.autoApproved,
-            approvalType: record.approvalType ?? undefined,
+            approvalType: (record.approvalType as ApprovalType) ?? undefined,
             appName: record.KeyUser?.description ?? null,
             allowed: record.allowed,
         };

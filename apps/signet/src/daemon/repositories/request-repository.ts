@@ -1,4 +1,5 @@
 import prisma from '../../db.js';
+import type { Prisma } from '@prisma/client';
 import type { ApprovalType } from '../lib/acl.js';
 
 export type RequestStatus = 'all' | 'pending' | 'approved' | 'denied' | 'expired';
@@ -53,7 +54,7 @@ export class RequestRepository {
         const now = new Date();
         const expiryThreshold = new Date(now.getTime() - this.REQUEST_TTL_MS);
 
-        let where: any;
+        let where: Prisma.RequestWhereInput;
         switch (options.status) {
             case 'pending':
                 where = {

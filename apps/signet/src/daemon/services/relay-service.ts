@@ -1,4 +1,5 @@
 import type { RelayPool, RelayStatus } from '../lib/relay-pool.js';
+import { logger } from '../lib/logger.js';
 
 /**
  * Monitors relay health and provides status to the UI.
@@ -21,7 +22,7 @@ export class RelayService {
         }
 
         this.isRunning = true;
-        console.log('Relay health monitoring started');
+        logger.info('Relay health monitoring started');
     }
 
     /**
@@ -33,7 +34,7 @@ export class RelayService {
         }
 
         this.isRunning = false;
-        console.log('Relay health monitoring stopped');
+        logger.info('Relay health monitoring stopped');
     }
 
     /**

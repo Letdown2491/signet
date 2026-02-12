@@ -1,3 +1,4 @@
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import createDebug from 'debug';
 import prisma from '../../db.js';
 import { permitAllRequests, grantPermissionsByTrustLevel, type TrustLevel } from '../lib/acl.js';
@@ -6,12 +7,14 @@ import { sanitizeCallbackUrl } from '../lib/auth.js';
 import { getEventService } from '../services/event-service.js';
 import { appService, emitCurrentStats } from '../services/index.js';
 import { VALID_TRUST_LEVELS } from '../constants.js';
-import { extractEventKind } from '../repositories/log-repository.js';
+import { extractEventKind } from '../lib/parse.js';
+import { toErrorMessage, toSafeErrorHtml } from '../lib/errors.js';
 import type { ActivityEntry } from '@signet/types';
+import type { RequestWithId, ProcessRequestRequest } from '../http/types.js';
 
 const debug = createDebug('signet:web');
 
-async function loadPendingRequest(request: any) {
+async function loadPendingRequest(request: RequestWithId) {
     const record = await prisma.request.findUnique({
         where: { id: request.params.id },
     });
@@ -23,7 +26,7 @@ async function loadPendingRequest(request: any) {
     return record;
 }
 
-export async function authorizeRequestWebHandler(request: any, reply: any) {
+export async function authorizeRequestWebHandler(request: RequestWithId, reply: FastifyReply) {
     try {
         const record = await loadPendingRequest(request);
 
@@ -45,34 +48,31 @@ export async function authorizeRequestWebHandler(request: any, reply: any) {
         });
     } catch (error) {
         debug('authorizeRequestWebHandler failed', error);
-        // Escape error message to prevent XSS
-        const safeError = String((error as Error).message || 'An error occurred')
-            .replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] || c));
-        return reply.view('/templates/error.handlebar', { error: safeError });
+        return reply.view('/templates/error.handlebar', { error: toSafeErrorHtml(error) });
     }
 }
 
 export async function processRequestWebHandler(
-    request: any,
-    reply: any
+    request: ProcessRequestRequest,
+    reply: FastifyReply
 ) {
     try {
         const record = await loadPendingRequest(request);
 
         // Get trust level from request body (default to 'reasonable')
-        const requestedTrustLevel = request.body?.trustLevel;
-        const trustLevel: TrustLevel = VALID_TRUST_LEVELS.includes(requestedTrustLevel)
-            ? requestedTrustLevel
+        const requestedTrustLevel = request.body.trustLevel;
+        const trustLevel: TrustLevel = requestedTrustLevel && VALID_TRUST_LEVELS.includes(requestedTrustLevel as TrustLevel)
+            ? (requestedTrustLevel as TrustLevel)
             : 'reasonable';
 
         // Get alwaysAllow flag from request body (default to false for one-time approval)
-        const alwaysAllow = request.body?.alwaysAllow === true;
+        const alwaysAllow = request.body.alwaysAllow === true;
 
         // Get allowKind for kind-specific permissions (optional)
-        const allowKind = typeof request.body?.allowKind === 'number' ? request.body.allowKind : undefined;
+        const allowKind = typeof request.body.allowKind === 'number' ? request.body.allowKind : undefined;
 
         // Get app name for connect requests (optional)
-        const appName = typeof request.body?.appName === 'string' ? request.body.appName.trim() : undefined;
+        const appName = typeof request.body.appName === 'string' ? request.body.appName.trim() : undefined;
 
         const processedAt = new Date();
         await prisma.request.update({
@@ -162,6 +162,6 @@ export async function processRequestWebHandler(
     } catch (error) {
         reply.status(400);
         reply.type('application/json');
-        return reply.send({ ok: false, error: (error as Error).message });
+        return reply.send({ ok: false, error: toErrorMessage(error) });
     }
 }

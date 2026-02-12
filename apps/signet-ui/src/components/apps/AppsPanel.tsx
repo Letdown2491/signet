@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import type { ConnectedApp, TrustLevel, MethodBreakdown } from '@signet/types';
 import { parseConnectPermissions, formatPermission } from '@signet/types';
-import { toNpub, formatLastActive, isActiveRecently, formatFutureDate } from '../../lib/formatters.js';
+import { toNpub, formatLastActive } from '../../lib/formatters.js';
 import { getPermissionRisk, getTrustLevelInfo } from '../../lib/event-labels.js';
 import { LoadingSpinner } from '../shared/LoadingSpinner.js';
 import { ConfirmDialog } from '../shared/ConfirmDialog.js';
 import { PageHeader } from '../shared/PageHeader.js';
 import { SuspendAppModal } from './SuspendAppModal.js';
-import { ChevronDown, ChevronRight, Search, Smartphone } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, Smartphone, Pause, Play, Plus, Loader2 } from 'lucide-react';
 import styles from './AppsPanel.module.css';
 
 const METHOD_COLORS: Record<keyof MethodBreakdown, string> = {
@@ -32,8 +32,8 @@ const METHOD_LABELS: Record<keyof MethodBreakdown, string> = {
 
 function MethodBreakdownBar({ breakdown }: { breakdown: MethodBreakdown }) {
   const entries = Object.entries(breakdown) as Array<[keyof MethodBreakdown, number]>;
-  const nonZero = entries.filter(([_, count]) => count > 0).sort((a, b) => b[1] - a[1]);
-  const total = nonZero.reduce((sum, [_, count]) => sum + count, 0);
+  const nonZero = entries.filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]);
+  const total = nonZero.reduce((sum, [, count]) => sum + count, 0);
 
   if (total === 0) return null;
 
@@ -69,37 +69,51 @@ interface AppsPanelProps {
   apps: ConnectedApp[];
   loading: boolean;
   error: string | null;
+  suspendingAll: boolean;
+  resumingAll: boolean;
   onRevokeApp: (appId: number) => Promise<boolean>;
   onUpdateDescription: (appId: number, description: string) => Promise<boolean>;
   onUpdateTrustLevel: (appId: number, trustLevel: TrustLevel) => Promise<boolean>;
   onSuspendApp: (appId: number, until?: Date) => Promise<boolean>;
   onUnsuspendApp: (appId: number) => Promise<boolean>;
+  onSuspendAllApps: (until?: Date) => Promise<{ success: boolean; suspendedCount?: number }>;
+  onResumeAllApps: () => Promise<{ success: boolean; resumedCount?: number }>;
   onClearError: () => void;
-  onNavigateToHelp: () => void;
+  onOpenConnectModal: () => void;
 }
 
 export function AppsPanel({
   apps,
   loading,
   error,
+  suspendingAll,
+  resumingAll,
   onRevokeApp,
   onUpdateDescription,
   onUpdateTrustLevel,
   onSuspendApp,
   onUnsuspendApp,
+  onSuspendAllApps,
+  onResumeAllApps,
   onClearError,
-  onNavigateToHelp,
+  onOpenConnectModal,
 }: AppsPanelProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [revokeConfirm, setRevokeConfirm] = useState<number | null>(null);
   const [suspendModalApp, setSuspendModalApp] = useState<ConnectedApp | null>(null);
+  const [showSuspendAllModal, setShowSuspendAllModal] = useState(false);
   const [suspending, setSuspending] = useState(false);
   const [trustMenuOpen, setTrustMenuOpen] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [keyFilter, setKeyFilter] = useState('all');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
+
+  // Calculate counts for bulk actions
+  const activeAppsCount = useMemo(() => apps.filter(app => !app.suspendedAt).length, [apps]);
+  const suspendedAppsCount = useMemo(() => apps.filter(app => !!app.suspendedAt).length, [apps]);
+  const allSuspended = apps.length > 0 && suspendedAppsCount === apps.length;
 
   const keyNames = useMemo(() => {
     const names = new Set<string>();
@@ -187,13 +201,60 @@ export function AppsPanel({
     }
   };
 
+  const handleSuspendAllSubmit = async (until?: Date) => {
+    const result = await onSuspendAllApps(until);
+    if (result.success) {
+      setShowSuspendAllModal(false);
+    }
+  };
+
+  const handleToggleSuspendResume = async () => {
+    if (allSuspended) {
+      await onResumeAllApps();
+    } else {
+      setShowSuspendAllModal(true);
+    }
+  };
+
   if (loading && apps.length === 0) {
     return <LoadingSpinner text="Loading apps..." />;
   }
 
   return (
     <div className={styles.container}>
-      <PageHeader title="Apps" count={apps.length} />
+      <PageHeader
+        title="Apps"
+        count={apps.length}
+        action={
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={handleToggleSuspendResume}
+              disabled={apps.length === 0 || suspendingAll || resumingAll}
+              title={allSuspended ? 'Resume all apps' : 'Suspend all apps'}
+              aria-label={allSuspended ? 'Resume all apps' : 'Suspend all apps'}
+            >
+              {suspendingAll || resumingAll ? (
+                <Loader2 size={16} className={styles.spinning} />
+              ) : allSuspended ? (
+                <Play size={16} />
+              ) : (
+                <Pause size={16} />
+              )}
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={onOpenConnectModal}
+              title="Connect app"
+              aria-label="Connect app"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        }
+      />
 
       {/* Search and Filters */}
       <div className={styles.toolbar}>
@@ -265,7 +326,6 @@ export function AppsPanel({
         <div className={styles.appList}>
           {filteredApps.map(app => {
             const isExpanded = expandedId === app.id;
-            const isActive = isActiveRecently(app.lastUsedAt);
             const isSuspended = !!app.suspendedAt;
             const trustInfo = getTrustLevelInfo(app.trustLevel);
             const displayName = app.description || toNpub(app.userPubkey).slice(0, 16) + '...';
@@ -278,15 +338,10 @@ export function AppsPanel({
                   onClick={() => handleExpand(app.id)}
                 >
                   <div className={styles.appMain}>
-                    <span className={`${styles.activityDot} ${isActive && !isSuspended ? styles.active : ''}`} />
-                    <span className={styles.appName}>{displayName}</span>
-                    {isSuspended && (
-                      <span className={styles.suspendedBadge}>
-                        {app.suspendUntil ? `Suspended until ${formatFutureDate(app.suspendUntil)}` : 'Suspended'}
-                      </span>
-                    )}
+                    <span className={`${styles.activityDot} ${!isSuspended ? styles.active : ''}`} />
+                    <span className={`${styles.appName} ${isSuspended ? styles.muted : ''}`}>{displayName}</span>
                   </div>
-                  <span className={styles.appLastActive}>{formatLastActive(app.lastUsedAt)}</span>
+                  <span className={styles.appLastActive}>{isSuspended ? 'Suspended' : formatLastActive(app.lastUsedAt)}</span>
                   <div className={styles.appMeta}>
                     <span className={styles.appKey}>{app.keyName}</span>
                     <span className={styles.dot}>•</span>
@@ -421,6 +476,15 @@ export function AppsPanel({
         error={error}
         onSubmit={handleSuspendSubmit}
         onCancel={() => setSuspendModalApp(null)}
+      />
+
+      <SuspendAppModal
+        open={showSuspendAllModal}
+        appCount={activeAppsCount}
+        loading={suspendingAll}
+        error={error}
+        onSubmit={handleSuspendAllSubmit}
+        onCancel={() => setShowSuspendAllModal(false)}
       />
     </div>
   );

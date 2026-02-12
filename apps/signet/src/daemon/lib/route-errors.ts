@@ -1,4 +1,5 @@
 import type { FastifyReply } from 'fastify';
+import { toErrorMessage } from './errors.js';
 
 /**
  * Error message to HTTP status code mappings for common application errors.
@@ -39,7 +40,7 @@ export function getErrorStatus(message: string): number {
  * Uses getErrorStatus to determine the status code from the error message.
  */
 export function sendError(reply: FastifyReply, error: unknown): FastifyReply {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = toErrorMessage(error);
     const status = getErrorStatus(message);
     return reply.code(status).send({ error: message });
 }

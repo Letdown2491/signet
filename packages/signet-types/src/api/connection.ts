@@ -30,6 +30,8 @@ export interface RelayStatus {
     lastConnected: string | null;
     /** When the relay was last disconnected */
     lastDisconnected: string | null;
+    /** Trust score from trustedrelays.xyz (0-100, null if unavailable) */
+    trustScore: number | null;
 }
 
 /**
@@ -42,4 +44,12 @@ export interface RelayStatusResponse {
     total: number;
     /** Status of each individual relay */
     relays: RelayStatus[];
+}
+
+/**
+ * Response from POST /relays/trust-scores for on-demand trust score lookup
+ */
+export interface RelayTrustScoreResponse {
+    /** Map of relay URL to trust score (null if unavailable) */
+    scores: Record<string, number | null>;
 }

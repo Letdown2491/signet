@@ -1,21 +1,19 @@
 import createDebug from 'debug';
 import type { RelayPool, SubscriptionFilter } from './relay-pool.js';
 import type { Event } from 'nostr-tools/pure';
+import { toErrorMessage } from './errors.js';
+import { logger } from './logger.js';
+import {
+    SUBSCRIPTION_HEALTH_CHECK_INTERVAL_MS,
+    SUBSCRIPTION_RECREATION_TIMEOUT_MS,
+    SUBSCRIPTION_RESTART_DEBOUNCE_MS,
+} from '../constants.js';
 
 const debug = createDebug('signet:subscription-manager');
 
-// How often to run the health check loop
-const HEALTH_CHECK_INTERVAL_MS = 90 * 1000; // 90 seconds
-
-// How long to wait for EOSE when recreating a subscription
-const RECREATION_TIMEOUT_MS = 10 * 1000; // 10 seconds
-
-// Debounce subscription restarts to avoid rapid-fire restarts
-const RESTART_DEBOUNCE_MS = 2000; // 2 seconds
-
 // Fallback sleep detection: if health check interval exceeds this, assume system slept
 // This is a backup in case RelayPool's heartbeat doesn't fire after long sleep
-const SLEEP_DETECTION_THRESHOLD_MS = HEALTH_CHECK_INTERVAL_MS * 3; // 4.5 minutes (3x interval)
+const SLEEP_DETECTION_THRESHOLD_MS = SUBSCRIPTION_HEALTH_CHECK_INTERVAL_MS * 3;
 
 export interface ManagedSubscription {
     id: string;
@@ -31,13 +29,14 @@ export interface SubscriptionManagerConfig {
     recreationTimeout?: number;
 }
 
-type SubscriptionManagerEventType =
-    | 'subscription-restarted'
-    | 'subscription-refreshed'
-    | 'health-check-failed'
-    | 'health-check-passed';
+type SubscriptionManagerEvent =
+    | { type: 'subscription-restarted'; data: { count: number; reason: string } }
+    | { type: 'subscription-refreshed'; data: { subscriptionId: string } }
+    | { type: 'health-check-failed'; data: { subscriptionId: string; error?: string } }
+    | { type: 'health-check-passed'; data: { subscriptionId: string } };
 
-type SubscriptionManagerListener = (event: { type: SubscriptionManagerEventType; data?: any }) => void;
+type SubscriptionManagerEventType = SubscriptionManagerEvent['type'];
+type SubscriptionManagerListener = (event: SubscriptionManagerEvent) => void;
 
 /**
  * Manages subscription lifecycle with automatic reconnection.
@@ -76,8 +75,8 @@ export class SubscriptionManager {
 
     constructor(config: SubscriptionManagerConfig) {
         this.pool = config.pool;
-        this.healthCheckInterval = config.healthCheckInterval ?? HEALTH_CHECK_INTERVAL_MS;
-        this.recreationTimeout = config.recreationTimeout ?? RECREATION_TIMEOUT_MS;
+        this.healthCheckInterval = config.healthCheckInterval ?? SUBSCRIPTION_HEALTH_CHECK_INTERVAL_MS;
+        this.recreationTimeout = config.recreationTimeout ?? SUBSCRIPTION_RECREATION_TIMEOUT_MS;
     }
 
     /**
@@ -106,12 +105,12 @@ export class SubscriptionManager {
         }, this.healthCheckInterval);
 
         debug('started with %dms health check interval', this.healthCheckInterval);
-        console.log(`Subscription health monitoring started (checking every ${this.healthCheckInterval / 1000}s)`);
+        logger.info('Subscription health monitoring started', { checkIntervalSec: this.healthCheckInterval / 1000 });
 
         // Run initial health check after a short delay to allow subscriptions to connect
         setTimeout(() => {
             if (this.isRunning && this.subscriptions.size > 0) {
-                console.log('Running initial relay health check...');
+                logger.info('Running initial relay health check');
                 this.runHealthCheck();
             }
         }, 5000);
@@ -142,7 +141,7 @@ export class SubscriptionManager {
         }
 
         debug('stopped');
-        console.log('Subscription health monitoring stopped');
+        logger.info('Subscription health monitoring stopped');
     }
 
     /**
@@ -230,7 +229,7 @@ export class SubscriptionManager {
         // This catches cases where RelayPool's heartbeat didn't fire after long sleep
         if (elapsed > SLEEP_DETECTION_THRESHOLD_MS) {
             const sleepDuration = Math.round((elapsed - this.healthCheckInterval) / 1000);
-            console.log(`System wake detected via health check (slept ~${sleepDuration}s), resetting pool`);
+            logger.info('System wake detected via health check, resetting pool', { sleepDurationSec: sleepDuration });
             this.pool.resetPool();
             // Pool reset will emit 'pool-reset' event, which triggers subscription restart
             // No need to continue with check - subscriptions will be recreated
@@ -248,26 +247,26 @@ export class SubscriptionManager {
         const targetId = subscriptionIds[currentIndex];
         this.healthCheckIndex = (this.healthCheckIndex + 1) % subscriptionIds.length;
 
-        console.log(`Health check: refreshing subscription "${targetId}" (${currentIndex + 1}/${subscriptionIds.length})...`);
+        logger.debug('Health check refreshing subscription', { subscriptionId: targetId, index: currentIndex + 1, total: subscriptionIds.length });
 
         try {
             const success = await this.refreshOneSubscription(targetId);
             if (success) {
-                console.log(`Health check passed: "${targetId}" refreshed successfully`);
+                logger.debug('Health check passed', { subscriptionId: targetId });
                 this.pool.reportHealthCheckSuccess();
                 this.emit({ type: 'health-check-passed', data: { subscriptionId: targetId } });
                 this.emit({ type: 'subscription-refreshed', data: { subscriptionId: targetId } });
             } else {
-                console.log(`Health check FAILED: "${targetId}" did not receive EOSE, resetting all subscriptions`);
+                logger.warn('Health check failed, no EOSE received', { subscriptionId: targetId });
                 const poolReset = this.pool.reportHealthCheckFailure();
                 this.emit({ type: 'health-check-failed', data: { subscriptionId: targetId } });
                 // If one subscription fails to recreate, something is wrong - restart all
                 this.scheduleRestart(poolReset ? 'pool-reset' : 'health-check-failed');
             }
         } catch (error) {
-            console.log(`Health check error on "${targetId}": ${(error as Error).message}, resetting all subscriptions`);
+            logger.error('Health check error', { subscriptionId: targetId, error: toErrorMessage(error) });
             const poolReset = this.pool.reportHealthCheckFailure();
-            this.emit({ type: 'health-check-failed', data: { subscriptionId: targetId, error: (error as Error).message } });
+            this.emit({ type: 'health-check-failed', data: { subscriptionId: targetId, error: toErrorMessage(error) } });
             this.scheduleRestart(poolReset ? 'pool-reset' : 'health-check-error');
         }
     }
@@ -359,9 +358,9 @@ export class SubscriptionManager {
             this.restartDebounceTimer = undefined;
             this.pendingRestart = false;
             this.doRestartSubscriptions(reason);
-        }, RESTART_DEBOUNCE_MS);
+        }, SUBSCRIPTION_RESTART_DEBOUNCE_MS);
 
-        debug('scheduled restart in %dms (reason: %s)', RESTART_DEBOUNCE_MS, reason);
+        debug('scheduled restart in %dms (reason: %s)', SUBSCRIPTION_RESTART_DEBOUNCE_MS, reason);
     }
 
     /**
@@ -374,7 +373,7 @@ export class SubscriptionManager {
             return;
         }
 
-        console.log(`Restarting ${count} subscription(s) (reason: ${reason})`);
+        logger.info('Restarting subscriptions', { count, reason });
 
         // Collect subscription info before closing
         const toRestart: ManagedSubscription[] = [];
@@ -406,19 +405,19 @@ export class SubscriptionManager {
             debug('restarted subscription %s%s', sub.id, sub.relays ? ` on ${sub.relays.length} custom relays` : '');
         }
 
-        console.log(`Restarted ${count} subscription(s) successfully`);
+        logger.info('Subscriptions restarted successfully', { count });
         this.emit({ type: 'subscription-restarted', data: { count, reason } });
     }
 
     /**
      * Emit an event to listeners.
      */
-    private emit(event: { type: SubscriptionManagerEventType; data?: any }): void {
+    private emit(event: SubscriptionManagerEvent): void {
         for (const listener of this.listeners) {
             try {
                 listener(event);
             } catch (error) {
-                debug('listener error: %s', (error as Error).message);
+                debug('listener error: %s', toErrorMessage(error));
             }
         }
     }

@@ -62,6 +62,22 @@ export function registerEventsRoutes(
             }
         }, 30000);
 
+        // Named handlers for proper cleanup
+        const onRequestClose = () => {
+            debug('SSE client disconnected (close event)');
+            cleanup();
+        };
+
+        const onRequestError = (error: Error) => {
+            debug('SSE client error: %o', error);
+            cleanup();
+        };
+
+        const onReplyClose = () => {
+            debug('SSE response closed');
+            cleanup();
+        };
+
         // Cleanup function to ensure resources are freed
         let cleanedUp = false;
         const cleanup = () => {
@@ -70,26 +86,21 @@ export function registerEventsRoutes(
             debug('SSE client cleanup triggered');
             clearInterval(keepAliveInterval);
             unsubscribe();
+            // Remove event listeners to prevent memory leaks
+            request.raw.off('close', onRequestClose);
+            request.raw.off('error', onRequestError);
+            reply.raw.off('close', onReplyClose);
             debug('Remaining subscribers: %d', config.eventService.getSubscriberCount());
         };
 
         // Cleanup on client disconnect
-        request.raw.on('close', () => {
-            debug('SSE client disconnected (close event)');
-            cleanup();
-        });
+        request.raw.on('close', onRequestClose);
 
         // Cleanup on error
-        request.raw.on('error', (error) => {
-            debug('SSE client error: %o', error);
-            cleanup();
-        });
+        request.raw.on('error', onRequestError);
 
         // Cleanup on socket end
-        reply.raw.on('close', () => {
-            debug('SSE response closed');
-            cleanup();
-        });
+        reply.raw.on('close', onReplyClose);
 
         // Don't return anything - keep the connection open
         await new Promise(() => {});

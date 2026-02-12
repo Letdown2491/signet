@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,17 +44,17 @@ fun LockScreen(
 ) {
     val context = LocalContext.current
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showPrompt by remember { mutableStateOf(false) }
+    // Use a counter instead of boolean so each button press triggers a new prompt
+    var promptTrigger by remember { mutableIntStateOf(0) }
 
-    // Show biometric prompt when requested
-    LaunchedEffect(showPrompt) {
-        if (showPrompt) {
+    // Show biometric prompt when trigger changes
+    LaunchedEffect(promptTrigger) {
+        if (promptTrigger > 0) {
             showBiometricPrompt(
                 activity = context as FragmentActivity,
                 onSuccess = onUnlocked,
                 onError = { error ->
                     errorMessage = error
-                    showPrompt = false
                 }
             )
         }
@@ -61,7 +62,7 @@ fun LockScreen(
 
     // Auto-show prompt on first composition
     LaunchedEffect(Unit) {
-        showPrompt = true
+        promptTrigger = 1
     }
 
     Surface(
@@ -112,7 +113,7 @@ fun LockScreen(
             Button(
                 onClick = {
                     errorMessage = null
-                    showPrompt = true
+                    promptTrigger++
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SignetPurple,

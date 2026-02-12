@@ -28,6 +28,11 @@ export function UnlockKeyModal({
     }
   }, [open]);
 
+  // Clear passphrase on unmount (security hygiene)
+  useEffect(() => {
+    return () => setPassphrase('');
+  }, []);
+
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (passphrase.trim()) {

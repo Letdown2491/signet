@@ -1,7 +1,8 @@
 import createDebug from 'debug';
-import type { PendingRequest, ConnectedApp, DashboardStats, KeyInfo, RelayStatusResponse, ActivityEntry } from '@signet/types';
+import type { PendingRequest, ConnectedApp, DashboardStats, KeyInfo, RelayStatusResponse, ActivityEntry, LogEntry, HealthStatus } from '@signet/types';
 import type { AdminActivityEntry } from '../repositories/admin-log-repository.js';
 import { getDashboardService } from './dashboard-service.js';
+import { logger } from '../lib/logger.js';
 
 const debug = createDebug('signet:events');
 
@@ -28,6 +29,7 @@ export type ServerEvent =
     | { type: 'apps:updated' }
     | { type: 'key:created'; key: KeyInfo }
     | { type: 'key:unlocked'; keyName: string }
+    | { type: 'key:locked'; keyName: string }
     | { type: 'key:deleted'; keyName: string }
     | { type: 'key:renamed'; oldName: string; newName: string }
     | { type: 'key:updated'; keyName: string }
@@ -37,6 +39,8 @@ export type ServerEvent =
     | { type: 'deadman:panic'; status: DeadManSwitchStatus }
     | { type: 'deadman:reset'; status: DeadManSwitchStatus }
     | { type: 'deadman:updated'; status: DeadManSwitchStatus }
+    | { type: 'log:entry'; entry: LogEntry }
+    | { type: 'health:updated'; health: HealthStatus }
     | { type: 'ping' };
 
 export type EventCallback = (event: ServerEvent) => void;
@@ -76,7 +80,7 @@ export class EventService {
             try {
                 callback(event);
             } catch (error) {
-                console.error('Error in event subscriber:', error);
+                logger.error('Error in event subscriber', { error: error instanceof Error ? error.message : String(error) });
             }
         }
     }
@@ -227,6 +231,20 @@ export class EventService {
     emitDeadmanUpdated(status: DeadManSwitchStatus): void {
         this.emit({ type: 'deadman:updated', status });
     }
+
+    /**
+     * Emit a log:entry event for real-time log streaming
+     */
+    emitLogEntry(entry: LogEntry): void {
+        this.emit({ type: 'log:entry', entry });
+    }
+
+    /**
+     * Emit a health:updated event for real-time health status
+     */
+    emitHealthUpdated(health: HealthStatus): void {
+        this.emit({ type: 'health:updated', health });
+    }
 }
 
 // Singleton instance for global access
@@ -246,15 +264,54 @@ export function setEventService(service: EventService): void {
 /**
  * Helper to fetch current stats and emit stats:updated event.
  * Call this after any operation that changes dashboard stats.
+ * Debounced to prevent spamming clients when multiple operations happen in quick succession.
  */
+let statsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const STATS_DEBOUNCE_MS = 150;
+
 export async function emitCurrentStats(): Promise<void> {
+    // Clear any pending emission
+    if (statsDebounceTimer) {
+        clearTimeout(statsDebounceTimer);
+    }
+
+    // Schedule new emission after debounce period
+    statsDebounceTimer = setTimeout(async () => {
+        statsDebounceTimer = null;
+        try {
+            const dashboardService = getDashboardService();
+            const eventService = getEventService();
+            const stats = await dashboardService.getStats();
+            eventService.emitStatsUpdated(stats);
+        } catch (error) {
+            // Log but don't throw - stats emission is not critical
+            debug('Failed to emit current stats: %O', error);
+        }
+    }, STATS_DEBOUNCE_MS);
+}
+
+// Health status getter - set by Daemon on initialization
+let healthStatusGetter: (() => HealthStatus) | null = null;
+
+export function setHealthStatusGetter(getter: () => HealthStatus): void {
+    healthStatusGetter = getter;
+}
+
+/**
+ * Helper to emit current health status.
+ * Call this after any operation that affects health (key unlock/lock, etc.)
+ */
+export function emitCurrentHealth(): void {
+    if (!healthStatusGetter) {
+        debug('Health status getter not set, skipping emit');
+        return;
+    }
     try {
-        const dashboardService = getDashboardService();
         const eventService = getEventService();
-        const stats = await dashboardService.getStats();
-        eventService.emitStatsUpdated(stats);
+        const health = healthStatusGetter();
+        eventService.emitHealthUpdated(health);
     } catch (error) {
-        // Log but don't throw - stats emission is not critical
-        debug('Failed to emit current stats: %O', error);
+        // Log but don't throw - health emission is not critical
+        debug('Failed to emit current health: %O', error);
     }
 }

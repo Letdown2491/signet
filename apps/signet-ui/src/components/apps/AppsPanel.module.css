@@ -7,6 +7,51 @@
   margin: 0 auto;
 }
 
+/* Header Actions */
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Toolbar */
 .toolbar {
   display: flex;
@@ -219,6 +264,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.appName.muted {
+  color: var(--text-muted);
 }
 
 .appLastActive {
@@ -566,16 +615,6 @@
 .appCard.suspended .activityDot {
   background: var(--text-muted);
   box-shadow: none;
-}
-
-.suspendedBadge {
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--warning-muted);
-  color: var(--warning);
-  margin-left: var(--space-2);
 }
 
 .suspendButton {

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { AlertTriangle, Loader2, KeyRound } from 'lucide-react';
 import type { KeyInfo } from '@signet/types';
 import styles from './LockScreen.module.css';
@@ -24,11 +24,16 @@ export function LockScreen({
   const lockedKeys = keys.filter(k => k.status === 'locked' && k.isEncrypted);
 
   // Set default selected key
-  React.useEffect(() => {
+  useEffect(() => {
     if (lockedKeys.length > 0 && !selectedKey) {
       setSelectedKey(lockedKeys[0].name);
     }
   }, [lockedKeys, selectedKey]);
+
+  // Clear passphrase on unmount (security hygiene)
+  useEffect(() => {
+    return () => setPassphrase('');
+  }, []);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();

@@ -64,6 +64,7 @@ import tech.geektoshi.signet.ui.theme.SignetPurple
 import tech.geektoshi.signet.ui.theme.TextMuted
 import tech.geektoshi.signet.ui.theme.TextPrimary
 import tech.geektoshi.signet.ui.theme.TextSecondary
+import tech.geektoshi.signet.util.ClearSensitiveDataOnDispose
 import tech.geektoshi.signet.util.getKindLabel
 import tech.geektoshi.signet.util.getMethodLabel
 import kotlinx.coroutines.launch
@@ -87,8 +88,12 @@ fun RequestDetailSheet(
     var selectedTrustLevel by remember { mutableStateOf(defaultTrustLevel) }
     var appName by remember { mutableStateOf("") }
     var alwaysAllow by remember { mutableStateOf(false) }
-    var passphrase by remember { mutableStateOf("") }
+    val passphraseState = remember { mutableStateOf("") }
+    var passphrase by passphraseState
     var rawJsonExpanded by remember { mutableStateOf(false) }
+
+    // Clear sensitive data when sheet is dismissed
+    ClearSensitiveDataOnDispose(passphraseState)
 
     val isPending = request.processedAt == null
     val isConnectRequest = request.method == "connect"

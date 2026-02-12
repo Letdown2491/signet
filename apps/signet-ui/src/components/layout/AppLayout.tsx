@@ -20,6 +20,7 @@ interface AppLayoutProps {
   onLockKey?: (keyName: string) => Promise<boolean>;
   onUnlockKey?: (keyName: string, passphrase: string) => Promise<boolean>;
   onConnectApp?: () => void;
+  onAddKey?: () => void;
 }
 
 export function AppLayout({
@@ -38,6 +39,7 @@ export function AppLayout({
   onLockKey,
   onUnlockKey,
   onConnectApp,
+  onAddKey,
 }: AppLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -85,6 +87,7 @@ export function AppLayout({
           onLockKey={onLockKey}
           onUnlockKey={onUnlockKey}
           onConnectApp={onConnectApp}
+          onAddKey={onAddKey}
         />
       </div>
 

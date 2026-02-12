@@ -6,12 +6,25 @@ import createDebug from 'debug';
 import WebSocket from 'ws';
 import type { KillSwitchConfig, KillSwitchDmType } from '../../config/types.js';
 import { bytesToHex, hexToBytes } from '../lib/hex.js';
+import { logger } from '../lib/logger.js';
 import type { KeyService } from './key-service.js';
 import type { AppService } from './app-service.js';
 import { emitCurrentStats, getEventService } from './event-service.js';
 import { getDeadManSwitchService } from './dead-man-switch-service.js';
 import { adminLogRepository, type AdminEventType } from '../repositories/admin-log-repository.js';
 import { getKillSwitchClientInfo } from '../lib/client-info.js';
+import { TTLCache } from '../lib/ttl-cache.js';
+import { toErrorMessage } from '../lib/errors.js';
+
+// TTL for processed event IDs: 1 hour (reduced from 24h to limit memory usage)
+const PROCESSED_EVENT_TTL_MS = 60 * 60 * 1000;
+// Max processed events to track (prevents unbounded growth)
+const PROCESSED_EVENT_MAX_SIZE = 10_000;
+
+// Reconnection backoff settings
+const RECONNECT_BASE_DELAY_MS = 5_000;      // Start with 5s
+const RECONNECT_MAX_DELAY_MS = 60_000;      // Max 60s between retries
+const RECONNECT_MAX_RETRIES = 10;           // Max retries before giving up on a relay
 
 const debug = createDebug('signet:admin');
 
@@ -50,10 +63,17 @@ export class AdminCommandService {
     private readonly daemonVersion: string;
     private websockets: WebSocket[] = [];
     private isRunning = false;
-    // Track processed event IDs to avoid duplicate command execution
-    private processedEventIds = new Set<string>();
+    // Track processed event IDs to avoid duplicate command execution (TTL-based)
+    private processedEventIds = new TTLCache<boolean>('admin-processed-events', {
+        ttlMs: PROCESSED_EVENT_TTL_MS,
+        maxSize: PROCESSED_EVENT_MAX_SIZE,
+    });
     // Subscription generation to invalidate old reconnection attempts
     private subscriptionGeneration = 0;
+    // Track pending reconnection timers to prevent memory leaks
+    private reconnectTimers: Set<NodeJS.Timeout> = new Set();
+    // Track retry counts per relay for exponential backoff
+    private relayRetryCounts: Map<string, number> = new Map();
 
     constructor(options: {
         config: KillSwitchConfig;
@@ -94,7 +114,7 @@ export class AdminCommandService {
             });
             getEventService().emitAdminEvent(adminLogRepository.toActivityEntry(adminLog));
         } catch (error) {
-            console.error('[KillSwitch] Failed to log admin event:', error);
+            logger.error('Failed to log admin event', { error: toErrorMessage(error) });
         }
     }
 
@@ -112,7 +132,7 @@ export class AdminCommandService {
             });
             getEventService().emitAdminEvent(adminLogRepository.toActivityEntry(adminLog));
         } catch (error) {
-            console.error('[KillSwitch] Failed to log command execution:', error);
+            logger.error('Failed to log command execution', { error: toErrorMessage(error) });
         }
     }
 
@@ -124,7 +144,7 @@ export class AdminCommandService {
             return;
         }
 
-        console.log(`[KillSwitch] Starting admin command listener (${this.config.dmType})`);
+        logger.info('Starting kill switch listener', { dmType: this.config.dmType });
         debug('Admin pubkey: %s', this.adminPubkey);
         debug('Admin relays: %s', this.config.adminRelays.join(', '));
 
@@ -141,7 +161,7 @@ export class AdminCommandService {
             return;
         }
 
-        console.log('[KillSwitch] Refreshing subscriptions after key change');
+        logger.info('Refreshing kill switch subscriptions after key change');
 
         // Increment generation to invalidate old reconnection attempts
         this.subscriptionGeneration++;
@@ -161,17 +181,30 @@ export class AdminCommandService {
             return;
         }
 
-        console.log('[KillSwitch] Stopping admin command listener');
+        logger.info('Stopping kill switch listener');
         this.closeAllWebsockets();
+        this.processedEventIds.destroy();
         this.isRunning = false;
     }
 
     /**
-     * Close all active websocket connections
+     * Close all active websocket connections and clear pending timers
      */
     private closeAllWebsockets(): void {
+        // Clear all pending reconnection timers first
+        for (const timer of this.reconnectTimers) {
+            clearTimeout(timer);
+        }
+        this.reconnectTimers.clear();
+
+        // Reset retry counts
+        this.relayRetryCounts.clear();
+
+        // Close all websockets
         for (const ws of this.websockets) {
             try {
+                // Remove all event listeners before closing to prevent memory leaks
+                ws.removeAllListeners();
                 ws.close();
             } catch {
                 // Ignore close errors
@@ -198,11 +231,11 @@ export class AdminCommandService {
         }
 
         if (pubkeys.length === 0) {
-            console.log('[KillSwitch] No active keys to listen on');
+            logger.info('Kill switch: No active keys to listen on');
             return;
         }
 
-        console.log(`[KillSwitch] Listening for DMs on ${pubkeys.length} key(s)`);
+        logger.info('Kill switch listening for DMs', { keyCount: pubkeys.length });
         debug('Subscribing to DMs for %d keys', pubkeys.length);
 
         // Subscribe based on DM type
@@ -221,9 +254,7 @@ export class AdminCommandService {
         // Only get events from NOW onwards to avoid replaying old commands
         const since = Math.floor(Date.now() / 1000);
         const filter = { kinds: [4], '#p': recipientPubkeys, since };
-        console.log('[KillSwitch] Subscribing to NIP-04 DMs (since: %d)', since);
-        console.log('[KillSwitch] Admin relays:', this.config.adminRelays);
-        console.log('[KillSwitch] Listening for DMs to pubkeys:', recipientPubkeys);
+        logger.debug('Subscribing to NIP-04 DMs', { since, relays: this.config.adminRelays, pubkeys: recipientPubkeys });
 
         // Connect to each admin relay via raw WebSocket
         for (const relay of this.config.adminRelays) {
@@ -246,7 +277,8 @@ export class AdminCommandService {
                 ws.close();
                 return;
             }
-            console.log(`[KillSwitch] Connected to ${relay}`);
+            logger.debug('Kill switch connected to relay', { relay });
+            this.onRelayConnected(relay);
             const req = JSON.stringify(['REQ', subId, filter]);
             ws.send(req);
         });
@@ -269,20 +301,14 @@ export class AdminCommandService {
                         debug('Skipping duplicate event %s', event.id.slice(0, 8));
                         return;
                     }
-                    this.processedEventIds.add(event.id);
+                    this.processedEventIds.set(event.id, true);
 
-                    // Limit the size of processed IDs set (keep last 1000)
-                    if (this.processedEventIds.size > 1000) {
-                        const firstId = this.processedEventIds.values().next().value;
-                        if (firstId) this.processedEventIds.delete(firstId);
-                    }
-
-                    console.log(`[KillSwitch] Received DM from ${event.pubkey.slice(0, 16)}...`);
+                    logger.debug('Kill switch received DM', { from: event.pubkey.slice(0, 16) });
                     this.handleNip04Event(event).catch((err) => {
-                        console.error('[KillSwitch] Error handling NIP-04 event:', err);
+                        logger.error('Error handling NIP-04 event', { error: toErrorMessage(err) });
                     });
                 } else if (parsed[0] === 'EOSE' && parsed[1] === subId) {
-                    console.log(`[KillSwitch] Subscription active on ${relay}`);
+                    logger.debug('Kill switch subscription active', { relay });
                 } else if (parsed[0] === 'NOTICE') {
                     debug('NOTICE from %s: %s', relay, parsed[1]);
                 }
@@ -292,23 +318,79 @@ export class AdminCommandService {
         });
 
         ws.on('error', (err: Error) => {
-            console.error(`[KillSwitch] WebSocket error on ${relay}: ${err.message}`);
+            logger.error('Kill switch WebSocket error', { relay, error: err.message });
         });
 
         ws.on('close', () => {
             debug('WebSocket closed for %s', relay);
             // Only attempt reconnection if generation matches and still running
             if (this.isRunning && generation === this.subscriptionGeneration) {
-                setTimeout(() => {
-                    if (this.isRunning && generation === this.subscriptionGeneration) {
-                        console.log(`[KillSwitch] Reconnecting to ${relay}...`);
-                        this.connectToRelay(relay, filter, recipientPubkeys);
-                    }
-                }, 5000);
+                this.scheduleReconnect(relay, filter, recipientPubkeys, generation, 'nip04');
             }
         });
 
         this.websockets.push(ws);
+    }
+
+    /**
+     * Schedule a reconnection attempt with exponential backoff
+     */
+    private scheduleReconnect(
+        relay: string,
+        filter: object,
+        recipientPubkeys: string[],
+        generation: number,
+        type: 'nip04' | 'nip17'
+    ): void {
+        // Get current retry count for this relay
+        const retryCount = this.relayRetryCounts.get(relay) ?? 0;
+
+        // Check if we've exceeded max retries
+        if (retryCount >= RECONNECT_MAX_RETRIES) {
+            logger.warn('Kill switch: max retries exceeded for relay', { relay, retryCount });
+            return;
+        }
+
+        // Calculate delay with exponential backoff
+        const delay = Math.min(
+            RECONNECT_BASE_DELAY_MS * Math.pow(2, retryCount),
+            RECONNECT_MAX_DELAY_MS
+        );
+
+        debug('scheduling reconnect for %s in %dms (attempt %d)', relay, delay, retryCount + 1);
+
+        const timer = setTimeout(() => {
+            // Remove this timer from tracking
+            this.reconnectTimers.delete(timer);
+
+            // Check if still valid
+            if (!this.isRunning || generation !== this.subscriptionGeneration) {
+                return;
+            }
+
+            // Increment retry count
+            this.relayRetryCounts.set(relay, retryCount + 1);
+
+            logger.debug('Kill switch reconnecting', { relay, attempt: retryCount + 1 });
+            if (type === 'nip04') {
+                this.connectToRelay(relay, filter, recipientPubkeys);
+            } else {
+                this.connectToRelayNip17(relay, filter);
+            }
+        }, delay);
+
+        // Track the timer so we can clear it on shutdown
+        this.reconnectTimers.add(timer);
+    }
+
+    /**
+     * Reset retry count for a relay on successful connection
+     */
+    private onRelayConnected(relay: string): void {
+        if (this.relayRetryCounts.has(relay)) {
+            debug('resetting retry count for %s', relay);
+            this.relayRetryCounts.delete(relay);
+        }
     }
 
     /**
@@ -318,7 +400,7 @@ export class AdminCommandService {
         // Only get events from NOW onwards to avoid replaying old commands
         const since = Math.floor(Date.now() / 1000);
         const filter = { kinds: [1059], '#p': recipientPubkeys, since };
-        console.log('[KillSwitch] Subscribing to NIP-17 DMs (since: %d)', since);
+        logger.debug('Subscribing to NIP-17 DMs', { since });
 
         // Connect to each admin relay via raw WebSocket
         for (const relay of this.config.adminRelays) {
@@ -339,7 +421,8 @@ export class AdminCommandService {
                 ws.close();
                 return;
             }
-            console.log(`[KillSwitch] Connected to ${relay} for NIP-17`);
+            logger.debug('Kill switch connected to relay for NIP-17', { relay });
+            this.onRelayConnected(relay);
             const req = JSON.stringify(['REQ', subId, filter]);
             ws.send(req);
         });
@@ -360,17 +443,13 @@ export class AdminCommandService {
                     if (this.processedEventIds.has(event.id)) {
                         return;
                     }
-                    this.processedEventIds.add(event.id);
-                    if (this.processedEventIds.size > 1000) {
-                        const firstId = this.processedEventIds.values().next().value;
-                        if (firstId) this.processedEventIds.delete(firstId);
-                    }
+                    this.processedEventIds.set(event.id, true);
 
                     this.handleNip17Event(event).catch((err) => {
-                        console.error('[KillSwitch] Error handling NIP-17 event:', err);
+                        logger.error('Error handling NIP-17 event', { error: toErrorMessage(err) });
                     });
                 } else if (parsed[0] === 'EOSE' && parsed[1] === subId) {
-                    console.log(`[KillSwitch] NIP-17 subscription active on ${relay}`);
+                    logger.debug('Kill switch NIP-17 subscription active', { relay });
                 }
             } catch {
                 debug('Non-JSON message from %s', relay);
@@ -378,18 +457,14 @@ export class AdminCommandService {
         });
 
         ws.on('error', (err: Error) => {
-            console.error(`[KillSwitch] NIP-17 WebSocket error on ${relay}: ${err.message}`);
+            logger.error('Kill switch NIP-17 WebSocket error', { relay, error: err.message });
         });
 
         ws.on('close', () => {
             debug('NIP-17 WebSocket closed for %s', relay);
             if (this.isRunning && generation === this.subscriptionGeneration) {
-                setTimeout(() => {
-                    if (this.isRunning && generation === this.subscriptionGeneration) {
-                        console.log(`[KillSwitch] Reconnecting to ${relay} for NIP-17...`);
-                        this.connectToRelayNip17(relay, filter);
-                    }
-                }, 5000);
+                // Pass empty array for recipientPubkeys since NIP-17 doesn't need it
+                this.scheduleReconnect(relay, filter, [], generation, 'nip17');
             }
         });
 
@@ -487,7 +562,7 @@ export class AdminCommandService {
      * Process a command from the admin
      */
     private async processCommand(command: string, nsec: string, recipientPubkey: string): Promise<void> {
-        console.log(`[KillSwitch] Received command: "${command}"`);
+        logger.info('Kill switch received command', { command });
 
         let result: string;
         let changesState = true;
@@ -503,7 +578,7 @@ export class AdminCommandService {
                 const activeApps = apps.filter(a => !a.suspendedAt);
                 const suspendedApps = await this.appService.suspendAllApps();
                 result = `🚨 PANIC: Locked ${lockedKeys.length} key(s), suspended ${suspendedApps} app(s)`;
-                console.log(`[KillSwitch] ${result}`);
+                logger.warn('Kill switch PANIC executed', { lockedKeys: lockedKeys.length, suspendedApps });
                 // Log admin events for each locked key
                 for (const keyName of lockedKeys) {
                     await this.logAdminEvent('key_locked', { keyName });
@@ -523,7 +598,7 @@ export class AdminCommandService {
                 result = locked.length > 0
                     ? `✓ Locked ${locked.length} key(s): ${locked.join(', ')}`
                     : '⚠ No keys to lock (all keys are either unencrypted or already locked)';
-                console.log(`[KillSwitch] ${result}`);
+                logger.info('Kill switch locked all keys', { locked });
                 // Log admin events for each locked key
                 for (const keyName of locked) {
                     await this.logAdminEvent('key_locked', { keyName });
@@ -539,7 +614,7 @@ export class AdminCommandService {
                 result = count > 0
                     ? `✓ Suspended ${count} app(s)`
                     : '⚠ No apps to suspend (all apps already suspended or none connected)';
-                console.log(`[KillSwitch] ${result}`);
+                logger.info('Kill switch suspended all apps', { count });
                 // Log admin events for each suspended app
                 for (const app of activeApps) {
                     await this.logAdminEvent('app_suspended', {
@@ -555,7 +630,7 @@ export class AdminCommandService {
                 result = count > 0
                     ? `✓ Resumed ${count} app(s)`
                     : '⚠ No apps to resume (no apps are suspended)';
-                console.log(`[KillSwitch] ${result}`);
+                logger.info('Kill switch resumed all apps', { count });
                 // Note: resumeAllApps doesn't return app details, so we log a generic event
                 // Individual app resumes will be logged when done via resumeSingleApp
                 break;
@@ -563,7 +638,7 @@ export class AdminCommandService {
 
             case 'status': {
                 result = await this.getStatusReport();
-                console.log(`[KillSwitch] Status requested`);
+                logger.debug('Kill switch status requested');
                 await this.logAdminEvent('status_checked');
                 changesState = false;
                 break;
@@ -572,7 +647,7 @@ export class AdminCommandService {
             case 'alive': {
                 // Reset dead man's switch timer
                 result = await this.resetDeadManSwitch();
-                console.log(`[KillSwitch] ${result}`);
+                logger.info('Kill switch reset dead man timer');
                 changesState = false; // Timer reset doesn't change key/app state
                 break;
             }
@@ -582,18 +657,18 @@ export class AdminCommandService {
                 if (command.startsWith('suspendall apps for ')) {
                     const keyName = command.slice(20); // Extract key name after "suspendall apps for "
                     result = await this.suspendAppsForKey(keyName);
-                    console.log(`[KillSwitch] ${result}`);
+                    logger.info('Kill switch suspend apps for key', { keyName, result });
                 } else if (command.startsWith('resumeall apps for ')) {
                     const keyName = command.slice(19); // Extract key name after "resumeall apps for "
                     result = await this.resumeAppsForKey(keyName);
-                    console.log(`[KillSwitch] ${result}`);
+                    logger.info('Kill switch resume apps for key', { keyName, result });
                 }
                 // Check for single-item commands
                 else if (command.startsWith('lock ')) {
                     const keyName = command.slice(5); // Extract key name after "lock "
                     const lockResult = this.lockSingleKey(keyName);
                     result = this.formatLockResult(lockResult);
-                    console.log(`[KillSwitch] ${result}`);
+                    logger.info('Kill switch lock key', { keyName, status: lockResult.status });
                     // Log admin event on successful lock
                     if (lockResult.status === 'locked') {
                         await this.logAdminEvent('key_locked', { keyName: lockResult.keyName });
@@ -604,14 +679,14 @@ export class AdminCommandService {
                 } else if (command.startsWith('suspend ')) {
                     const appName = command.slice(8); // Extract app name after "suspend "
                     result = await this.suspendSingleApp(appName);
-                    console.log(`[KillSwitch] ${result}`);
+                    logger.info('Kill switch suspend app', { appName, result });
                 } else if (command.startsWith('resume ')) {
                     const appName = command.slice(7); // Extract app name after "resume "
                     result = await this.resumeSingleApp(appName);
-                    console.log(`[KillSwitch] ${result}`);
+                    logger.info('Kill switch resume app', { appName, result });
                 } else {
                     result = `⚠ Unknown command: "${command}".\n\nValid commands:\n• panic (or lockall, killswitch) - emergency lock all\n• lockall keys\n• lock <keyname>\n• suspendall apps [for <keyname>]\n• suspend <appname>\n• resumeall apps [for <keyname>]\n• resume <appname>\n• alive - reset dead man's switch timer\n• status`;
-                    console.log(`[KillSwitch] Unknown command: "${command}"`);
+                    logger.warn('Kill switch unknown command', { command });
                     changesState = false;
                 }
             }
@@ -626,12 +701,12 @@ export class AdminCommandService {
         await this.logCommandExecution(command, result);
 
         // Send confirmation DM back to admin
-        console.log(`[KillSwitch] Sending confirmation: "${result.slice(0, 50)}..."`);
+        logger.debug('Sending kill switch confirmation', { resultPreview: result.slice(0, 50) });
         try {
             await this.sendConfirmation(result, nsec, recipientPubkey);
-            console.log('[KillSwitch] Confirmation sent successfully');
+            logger.debug('Kill switch confirmation sent');
         } catch (error) {
-            console.error('[KillSwitch] Failed to send confirmation:', error);
+            logger.error('Failed to send kill switch confirmation', { error: toErrorMessage(error) });
         }
     }
 
@@ -654,7 +729,7 @@ export class AdminCommandService {
                     this.keyService.lockKey(keyName);
                     return { status: 'locked', keyName };
                 } catch (error) {
-                    const message = (error as Error).message;
+                    const message = toErrorMessage(error);
                     if (message === 'Key not found') {
                         return { status: 'not_found', keyName };
                     }
@@ -674,7 +749,7 @@ export class AdminCommandService {
             this.keyService.lockKey(keyName);
             return { status: 'locked', keyName };
         } catch (error) {
-            const message = (error as Error).message;
+            const message = toErrorMessage(error);
             if (message === 'Cannot lock an unencrypted key') {
                 return { status: 'not_encrypted', keyName };
             }
@@ -690,11 +765,10 @@ export class AdminCommandService {
             case 'locked':
                 return `✓ Locked key '${result.keyName}'`;
             case 'not_found':
-                return `⚠ Key '${result.keyName}' not found`;
             case 'already_locked':
-                return `⚠ Key '${result.keyName}' is already locked`;
             case 'not_encrypted':
-                return `⚠ Cannot lock '${result.keyName}' - key is not encrypted`;
+                // Generic message prevents key enumeration attacks
+                return `⚠ Could not lock key '${result.keyName}'`;
         }
     }
 
@@ -708,12 +782,9 @@ export class AdminCommandService {
             a.userPubkey.toLowerCase().startsWith(appName.toLowerCase())
         );
 
-        if (!app) {
-            return `⚠ App '${appName}' not found`;
-        }
-
-        if (app.suspendedAt) {
-            return `⚠ App '${app.description || app.userPubkey.slice(0, 8)}' is already suspended`;
+        // Generic message prevents app enumeration attacks
+        if (!app || app.suspendedAt) {
+            return `⚠ Could not suspend app '${appName}'`;
         }
 
         try {
@@ -725,7 +796,8 @@ export class AdminCommandService {
             });
             return `✓ Suspended app '${app.description || app.userPubkey.slice(0, 8)}'`;
         } catch (error) {
-            return `⚠ Failed to suspend app: ${(error as Error).message}`;
+            // Generic message prevents revealing internal errors
+            return `⚠ Could not suspend app '${appName}'`;
         }
     }
 
@@ -739,12 +811,9 @@ export class AdminCommandService {
             a.userPubkey.toLowerCase().startsWith(appName.toLowerCase())
         );
 
-        if (!app) {
-            return `⚠ App '${appName}' not found`;
-        }
-
-        if (!app.suspendedAt) {
-            return `⚠ App '${app.description || app.userPubkey.slice(0, 8)}' is not suspended`;
+        // Generic message prevents app enumeration attacks
+        if (!app || !app.suspendedAt) {
+            return `⚠ Could not resume app '${appName}'`;
         }
 
         try {
@@ -756,7 +825,8 @@ export class AdminCommandService {
             });
             return `✓ Resumed app '${app.description || app.userPubkey.slice(0, 8)}'`;
         } catch (error) {
-            return `⚠ Failed to resume app: ${(error as Error).message}`;
+            // Generic message prevents revealing internal errors
+            return `⚠ Could not resume app '${appName}'`;
         }
     }
 
@@ -935,7 +1005,7 @@ export class AdminCommandService {
 
             return `✓ Dead man's switch timer reset\nTime remaining: ${timeStr}`;
         } catch (error) {
-            return `⚠ Failed to reset timer: ${(error as Error).message}`;
+            return `⚠ Failed to reset timer: ${toErrorMessage(error)}`;
         }
     }
 
@@ -949,7 +1019,7 @@ export class AdminCommandService {
 
             if (this.config.dmType === 'NIP04') {
                 // Send NIP-04 DM
-                console.log('[KillSwitch] Encrypting NIP-04 reply...');
+                logger.debug('Encrypting NIP-04 reply');
                 const encrypted = await nip04Encrypt(privkeyHex, this.adminPubkey, message);
                 const event = finalizeEvent({
                     kind: 4,
@@ -958,9 +1028,9 @@ export class AdminCommandService {
                     created_at: Math.floor(Date.now() / 1000),
                 }, nsecBytes);
 
-                console.log(`[KillSwitch] Publishing reply to ${this.config.adminRelays.length} relay(s)...`);
+                logger.debug('Publishing reply', { relayCount: this.config.adminRelays.length });
                 await this.publishEvent(event);
-                console.log('[KillSwitch] Reply published');
+                logger.debug('Reply published');
             } else {
                 // Send NIP-17 gift-wrapped DM
                 await this.sendNip17Dm(message, nsecBytes, senderPubkey);
@@ -968,7 +1038,7 @@ export class AdminCommandService {
 
             debug('Sent confirmation to admin');
         } catch (error) {
-            console.error('[KillSwitch] Failed to send confirmation:', error);
+            logger.error('Failed to send confirmation', { error: toErrorMessage(error) });
             throw error; // Re-throw so caller can log too
         }
     }
@@ -977,13 +1047,37 @@ export class AdminCommandService {
      * Publish an event to all admin relays via raw WebSocket
      */
     private async publishEvent(event: Event): Promise<void> {
+        // Track all resources for cleanup
+        const websockets: WebSocket[] = [];
+        const timeouts: NodeJS.Timeout[] = [];
+
+        const cleanup = () => {
+            // Clear all pending timeouts
+            for (const timeout of timeouts) {
+                clearTimeout(timeout);
+            }
+            // Close all websockets and remove listeners
+            for (const ws of websockets) {
+                try {
+                    ws.removeAllListeners();
+                    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                        ws.close();
+                    }
+                } catch {
+                    // Ignore close errors
+                }
+            }
+        };
+
         const publishPromises = this.config.adminRelays.map(relay => {
             return new Promise<void>((resolve, reject) => {
                 const ws = new WebSocket(relay);
+                websockets.push(ws);
+
                 const timeout = setTimeout(() => {
-                    ws.close();
                     reject(new Error('Publish timeout'));
                 }, 10000);
+                timeouts.push(timeout);
 
                 ws.on('open', () => {
                     ws.send(JSON.stringify(['EVENT', event]));
@@ -994,8 +1088,6 @@ export class AdminCommandService {
                     try {
                         const parsed = JSON.parse(msg);
                         if (parsed[0] === 'OK' && parsed[1] === event.id) {
-                            clearTimeout(timeout);
-                            ws.close();
                             if (parsed[2]) {
                                 debug('Published to %s', relay);
                                 resolve();
@@ -1009,14 +1101,18 @@ export class AdminCommandService {
                 });
 
                 ws.on('error', (err: Error) => {
-                    clearTimeout(timeout);
                     reject(err);
                 });
             });
         });
 
-        // Wait for at least one successful publish
-        await Promise.any(publishPromises);
+        try {
+            // Wait for at least one successful publish
+            await Promise.any(publishPromises);
+        } finally {
+            // Always cleanup all resources, whether success or failure
+            cleanup();
+        }
     }
 
     /**

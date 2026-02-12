@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { ConnectedApp, TrustLevel } from '@signet/types';
-import { apiGet, apiPost, apiPatch } from '../lib/api-client.js';
+import { apiGet, apiPost, apiPatch, suspendAllApps as suspendAllAppsApi, resumeAllApps as resumeAllAppsApi } from '../lib/api-client.js';
 import { buildErrorMessage } from '../lib/formatters.js';
 import { useSSESubscription } from '../contexts/ServerEventsContext.js';
 import { useMutation } from './useMutation.js';
@@ -16,6 +16,10 @@ interface UseAppsResult {
     updateTrustLevel: (appId: number, trustLevel: TrustLevel) => Promise<boolean>;
     suspendApp: (appId: number, until?: Date) => Promise<boolean>;
     unsuspendApp: (appId: number) => Promise<boolean>;
+    suspendAllApps: (until?: Date) => Promise<{ success: boolean; suspendedCount?: number }>;
+    resumeAllApps: () => Promise<{ success: boolean; resumedCount?: number }>;
+    suspendingAll: boolean;
+    resumingAll: boolean;
     clearError: () => void;
 }
 
@@ -143,6 +147,30 @@ export function useApps(): UseAppsResult {
         { errorPrefix: 'Failed to unsuspend app', onSuccess: refresh, onError: setError }
     );
 
+    // Suspend all apps mutation
+    const suspendAllMutation = useMutation(
+        async (until?: Date) => {
+            const result = await suspendAllAppsApi(until?.toISOString());
+            if (!result?.ok) {
+                throw new Error(result?.error ?? 'Failed to suspend all apps');
+            }
+            return { success: true, suspendedCount: result.suspendedCount };
+        },
+        { errorPrefix: 'Failed to suspend all apps', onSuccess: refresh, onError: setError }
+    );
+
+    // Resume all apps mutation
+    const resumeAllMutation = useMutation(
+        async () => {
+            const result = await resumeAllAppsApi();
+            if (!result?.ok) {
+                throw new Error(result?.error ?? 'Failed to resume all apps');
+            }
+            return { success: true, resumedCount: result.resumedCount };
+        },
+        { errorPrefix: 'Failed to resume all apps', onSuccess: refresh, onError: setError }
+    );
+
     // Wrapper functions to maintain the same API
     const revokeApp = useCallback(async (appId: number): Promise<boolean> => {
         const result = await revokeMutation.mutate(appId);
@@ -169,6 +197,16 @@ export function useApps(): UseAppsResult {
         return result ?? false;
     }, [unsuspendMutation]);
 
+    const suspendAllApps = useCallback(async (until?: Date) => {
+        const result = await suspendAllMutation.mutate(until);
+        return result ?? { success: false };
+    }, [suspendAllMutation]);
+
+    const resumeAllApps = useCallback(async () => {
+        const result = await resumeAllMutation.mutate(undefined);
+        return result ?? { success: false };
+    }, [resumeAllMutation]);
+
     const clearError = useCallback(() => {
         setError(null);
     }, []);
@@ -179,7 +217,9 @@ export function useApps(): UseAppsResult {
         || descriptionMutation.error
         || trustLevelMutation.error
         || suspendMutation.error
-        || unsuspendMutation.error;
+        || unsuspendMutation.error
+        || suspendAllMutation.error
+        || resumeAllMutation.error;
 
     return {
         apps,
@@ -191,6 +231,10 @@ export function useApps(): UseAppsResult {
         updateTrustLevel,
         suspendApp,
         unsuspendApp,
+        suspendAllApps,
+        resumeAllApps,
+        suspendingAll: suspendAllMutation.loading,
+        resumingAll: resumeAllMutation.loading,
         clearError,
     };
 }

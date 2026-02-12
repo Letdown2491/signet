@@ -1,5 +1,5 @@
 import React from 'react';
-import { useToast, type Toast as ToastType } from '../../contexts/ToastContext.js';
+import { useToast } from '../../contexts/ToastContext.js';
 import { CloseIcon } from './Icons.js';
 import styles from './Toast.module.css';
 

@@ -1,13 +1,25 @@
 /**
+ * Encryption format for stored keys
+ */
+export type EncryptionFormat = 'none' | 'legacy' | 'nip49';
+
+/**
  * Encrypted or plain-text key storage format
+ *
+ * Detection logic:
+ * - Has `ncryptsec` → NIP-49 encrypted
+ * - Has `iv` + `data` → legacy encrypted (AES-256-GCM)
+ * - Has `key` only → unencrypted
  */
 export interface StoredKey {
-    /** Initialization vector for encrypted keys (hex) */
+    /** Initialization vector for legacy encrypted keys (hex) */
     iv?: string;
-    /** Encrypted key data (hex) */
+    /** Encrypted key data for legacy format (hex) */
     data?: string;
     /** Plain-text nsec (if not encrypted) */
     key?: string;
+    /** NIP-49 encrypted key (ncryptsec bech32 string) */
+    ncryptsec?: string;
 }
 
 /**

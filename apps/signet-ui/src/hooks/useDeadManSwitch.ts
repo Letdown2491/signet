@@ -66,11 +66,24 @@ function getUrgency(seconds: number | null): 'normal' | 'warning' | 'critical' {
   return 'normal';
 }
 
+/**
+ * Calculate remaining seconds from status.
+ * Self-corrects for any drift by computing from lastResetAt.
+ */
+function calculateRemaining(status: DeadManSwitchStatus | null): number | null {
+  if (!status?.enabled || !status.lastResetAt || status.panicTriggeredAt) {
+    return null;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const elapsed = nowSec - status.lastResetAt;
+  return Math.max(0, status.timeframeSec - elapsed);
+}
+
 export function useDeadManSwitch(): UseDeadManSwitchResult {
   const [status, setStatus] = useState<DeadManSwitchStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [localRemaining, setLocalRemaining] = useState<number | null>(null);
+  const [_tick, setTick] = useState(0); // Force re-render for countdown
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { subscribe } = useServerEventsContext();
@@ -80,7 +93,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
     try {
       const data = await getDeadManSwitchStatus();
       setStatus(data);
-      setLocalRemaining(data.remainingSec);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load status');
@@ -99,7 +111,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
     const unsubscribe = subscribe((event) => {
       if (event.type === 'deadman:panic' || event.type === 'deadman:reset' || event.type === 'deadman:updated') {
         setStatus(event.status);
-        setLocalRemaining(event.status.remainingSec);
       }
       // Also refresh on reconnect to sync state
       if (event.type === 'reconnected') {
@@ -109,7 +120,7 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
     return unsubscribe;
   }, [subscribe, refresh]);
 
-  // Client-side countdown ticker
+  // Client-side countdown ticker - recalculates from lastResetAt each tick
   useEffect(() => {
     // Clear any existing interval
     if (countdownIntervalRef.current) {
@@ -118,19 +129,16 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
     }
 
     // Only tick if enabled and not panicked
-    if (!status?.enabled || status?.panicTriggeredAt || localRemaining === null) {
+    if (!status?.enabled || status?.panicTriggeredAt) {
       return;
     }
 
     // Determine tick interval based on remaining time
-    const tickInterval = localRemaining <= 60 ? 1000 : 60000;
+    const remaining = calculateRemaining(status);
+    const tickInterval = remaining !== null && remaining <= 60 ? 1000 : 60000;
 
     countdownIntervalRef.current = setInterval(() => {
-      setLocalRemaining((prev) => {
-        if (prev === null || prev <= 0) return prev;
-        const decrement = tickInterval / 1000;
-        return Math.max(0, prev - decrement);
-      });
+      setTick(t => t + 1); // Force re-render to recalculate
     }, tickInterval);
 
     return () => {
@@ -139,7 +147,11 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
         countdownIntervalRef.current = null;
       }
     };
-  }, [status?.enabled, status?.panicTriggeredAt, localRemaining]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.enabled, status?.panicTriggeredAt, status?.lastResetAt, status?.timeframeSec]);
+
+  // Calculate current remaining (recalculated on each render/tick)
+  const currentRemaining = calculateRemaining(status);
 
   // Enable dead man's switch
   const enable = useCallback(async (timeframeSec?: number) => {
@@ -147,7 +159,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
       const result = await enableDeadManSwitch(timeframeSec);
       if (result.ok && result.status) {
         setStatus(result.status);
-        setLocalRemaining(result.status.remainingSec);
       }
       return { ok: result.ok, error: result.error };
     } catch (err) {
@@ -162,7 +173,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
       const result = await disableDeadManSwitch(keyName, passphrase);
       if (result.ok && result.status) {
         setStatus(result.status);
-        setLocalRemaining(result.status.remainingSec);
       }
       return { ok: result.ok, error: result.error, remainingAttempts: result.remainingAttempts };
     } catch (err) {
@@ -177,7 +187,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
       const result = await resetDeadManSwitch(keyName, passphrase);
       if (result.ok && result.status) {
         setStatus(result.status);
-        setLocalRemaining(result.status.remainingSec);
       }
       return { ok: result.ok, error: result.error, remainingAttempts: result.remainingAttempts };
     } catch (err) {
@@ -192,7 +201,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
       const result = await testDeadManSwitchPanic(keyName, passphrase);
       if (result.ok && result.status) {
         setStatus(result.status);
-        setLocalRemaining(result.status.remainingSec);
       }
       return { ok: result.ok, error: result.error, remainingAttempts: result.remainingAttempts };
     } catch (err) {
@@ -207,7 +215,6 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
       const result = await updateDeadManSwitchTimeframe(keyName, passphrase, timeframeSec);
       if (result.ok && result.status) {
         setStatus(result.status);
-        setLocalRemaining(result.status.remainingSec);
       }
       return { ok: result.ok, error: result.error, remainingAttempts: result.remainingAttempts };
     } catch (err) {
@@ -220,8 +227,8 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
     status,
     loading,
     error,
-    countdown: formatCountdown(localRemaining),
-    urgency: getUrgency(localRemaining),
+    countdown: formatCountdown(currentRemaining),
+    urgency: getUrgency(currentRemaining),
     refresh,
     enable,
     disable,

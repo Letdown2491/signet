@@ -12,6 +12,7 @@ vi.mock('../../repositories/index.js', () => ({
   appRepository: {
     findAll: vi.fn(),
     findById: vi.fn(),
+    findByIdWithConditions: vi.fn(),
     revoke: vi.fn(),
     updateDescription: vi.fn(),
     getRequestCount: vi.fn(),
@@ -108,8 +109,12 @@ describe('AppService', () => {
 
   describe('updateDescription', () => {
     it('should update description when app found', async () => {
-      mockAppRepository.findById.mockResolvedValue(createMockKeyUser({ id: 1 }));
+      const mockKeyUser = createMockKeyUser({ id: 1 });
+      mockAppRepository.findById.mockResolvedValue(mockKeyUser);
+      mockAppRepository.findByIdWithConditions.mockResolvedValue(mockKeyUser);
       mockAppRepository.updateDescription.mockResolvedValue(undefined);
+      mockAppRepository.getRequestCountsBatch.mockResolvedValue(new Map([[1, 0]]));
+      mockAppRepository.getMethodBreakdownsBatch.mockResolvedValue(new Map([[1, {}]]));
 
       await service.updateDescription(1, 'New Name');
 

@@ -1,0 +1,308 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    gap: var(--space-4);
+}
+
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.filters {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: 1;
+    min-width: 200px;
+}
+
+.searchWrapper {
+    position: relative;
+    flex: 1;
+    max-width: 300px;
+}
+
+.searchIcon {
+    position: absolute;
+    left: var(--space-3);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.searchInput {
+    width: 100%;
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-8);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    transition: border-color var(--transition-fast);
+}
+
+.searchInput:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.searchInput::placeholder {
+    color: var(--text-muted);
+}
+
+.levelSelect {
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.levelSelect:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.actionButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.actionButton:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.actionButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.actionButton.paused {
+    background: var(--warning-muted);
+    border-color: var(--warning-border);
+    color: var(--warning);
+}
+
+.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.autoScrollLabel {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.checkbox {
+    accent-color: var(--accent);
+}
+
+.error {
+    padding: var(--space-3);
+    background: var(--danger-muted);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius-md);
+    color: var(--danger);
+    font-size: var(--text-sm);
+}
+
+.pausedBanner {
+    padding: var(--space-2) var(--space-3);
+    background: var(--warning-muted);
+    border: 1px solid var(--warning-border);
+    border-radius: var(--radius-md);
+    color: var(--warning);
+    font-size: var(--text-sm);
+    text-align: center;
+}
+
+.logsContainer {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
+.loadingState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-8);
+    color: var(--text-secondary);
+}
+
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-8);
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.emptyIcon {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.emptyHint {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+}
+
+.logsList {
+    display: flex;
+    flex-direction: column;
+}
+
+.logEntry {
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.logEntry:last-child {
+    border-bottom: none;
+}
+
+.logRow {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+}
+
+.logRow.clickable {
+    cursor: pointer;
+}
+
+.logRow.clickable:hover {
+    background: var(--surface-hover);
+}
+
+.expandIcon {
+    color: var(--text-muted);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.levelBadge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: var(--font-semibold);
+    text-transform: uppercase;
+}
+
+.levelDebug {
+    background: var(--surface-2);
+    color: var(--text-muted);
+}
+
+.levelInfo {
+    background: var(--info-muted);
+    color: var(--info);
+}
+
+.levelWarn {
+    background: var(--warning-muted);
+    color: var(--warning);
+}
+
+.levelError {
+    background: var(--danger-muted);
+    color: var(--danger);
+}
+
+.timestamp {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    min-width: 80px;
+}
+
+.message {
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.dataBlock {
+    padding: var(--space-2) var(--space-3) var(--space-3);
+    padding-left: calc(var(--space-3) + 14px + var(--space-2));
+    background: var(--surface-1);
+}
+
+.dataContent {
+    margin: 0;
+    padding: var(--space-3);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--space-2);
+}
+
+.logCount {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+}
+
+/* Level-specific row backgrounds for better visibility */
+.logEntry.levelError .logRow {
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.logEntry.levelWarn .logRow {
+    background: rgba(245, 158, 11, 0.03);
+}

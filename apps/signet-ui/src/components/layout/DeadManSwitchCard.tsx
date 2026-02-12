@@ -27,6 +27,11 @@ function ResetModal({ open, loading, error, remainingAttempts, onSubmit, onCance
     prevOpenRef.current = open;
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clear passphrase on unmount (security hygiene)
+  useEffect(() => {
+    return () => setPassphrase('');
+  }, []);
+
   if (!open) return null;
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -11,6 +11,7 @@ import {
     setCsrfCookie,
     isAllowedOrigin,
 } from '../lib/auth.js';
+import { logger } from '../lib/logger.js';
 import { registerConnectionRoutes, type ConnectionRouteConfig } from './routes/connection.js';
 import { registerRequestRoutes, type RequestsRouteConfig } from './routes/requests.js';
 import { registerKeysRoutes, type KeysRouteConfig } from './routes/keys.js';
@@ -21,6 +22,7 @@ import { registerPoliciesRoutes } from './routes/policies.js';
 import { registerEventsRoutes } from './routes/events.js';
 import { registerNostrconnectRoutes } from './routes/nostrconnect.js';
 import { registerDeadManSwitchRoutes } from './routes/dead-man-switch.js';
+import { registerLogsRoutes } from './routes/logs.js';
 import type { KeyService, RequestService, AppService, DashboardService, EventService, RelayService } from '../services/index.js';
 import type { ConnectionManager } from '../connection-manager.js';
 import type { NostrConfig } from '../../config/types.js';
@@ -34,6 +36,8 @@ export interface HealthStatus {
     subscriptions: number;
     sseClients: number;
     lastPoolReset: string | null;
+    caches?: Record<string, { size: number; hits: number; misses: number; evictions: number }>;
+    logBuffer?: { entries: number; maxEntries: number; estimatedKB: number };
 }
 
 export interface HttpServerConfig {
@@ -52,6 +56,8 @@ export interface HttpServerConfig {
     eventService: EventService;
     relayService: RelayService;
     getHealthStatus?: () => HealthStatus;
+    getTrustScore?: (url: string) => number | null;
+    getTrustScoresForRelays?: (urls: string[]) => Promise<Map<string, number | null>>;
 }
 
 export class HttpServer {
@@ -82,7 +88,7 @@ export class HttpServer {
             try {
                 urlPrefix = new URL(this.config.baseUrl).pathname.replace(/\/+$/, '');
             } catch (error) {
-                console.log(`⚠️ Invalid baseUrl in config: ${this.config.baseUrl}`);
+                logger.warn('Invalid baseUrl in config', { baseUrl: this.config.baseUrl });
             }
         }
 
@@ -90,13 +96,13 @@ export class HttpServer {
         if (this.config.jwtSecret) {
             await registerAuthPlugins(this.fastify, this.config.jwtSecret);
         } else {
-            console.log('⚠️ No JWT secret configured - authentication will not work');
+            logger.warn('No JWT secret configured - authentication will not work');
         }
 
         // CORS handling with origin validation
         const allowedOrigins = this.config.allowedOrigins;
         if (allowedOrigins.includes('*')) {
-            console.log('⚠️ WARNING: CORS is configured with wildcard origin (*). This is insecure for production!');
+            logger.warn('CORS is configured with wildcard origin (*) - insecure for production');
         }
         this.fastify.addHook('onRequest', async (request, reply) => {
             const origin = request.headers.origin;
@@ -152,6 +158,8 @@ export class HttpServer {
             connectionManager: this.config.connectionManager,
             nostrConfig: this.config.nostrConfig,
             relayService: this.config.relayService,
+            getTrustScore: this.config.getTrustScore,
+            getTrustScoresForRelays: this.config.getTrustScoresForRelays,
         }, { auth: [authMiddleware], csrf: [csrfMiddleware] });
 
         // Request routes (state-changing, needs CSRF)
@@ -218,6 +226,9 @@ export class HttpServer {
             auth: [authMiddleware],
             csrf: [csrfMiddleware],
         });
+
+        // Logs routes (GET only, no CSRF needed)
+        registerLogsRoutes(this.fastify, [authMiddleware]);
     }
 
     private async listen(): Promise<void> {

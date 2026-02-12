@@ -105,6 +105,7 @@ describe('RequestRepository', () => {
         data: {
           allowed: true,
           processedAt: expect.any(Date),
+          approvalType: 'manual',
         },
       });
     });

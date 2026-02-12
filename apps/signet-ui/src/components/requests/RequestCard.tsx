@@ -34,7 +34,7 @@ export function RequestCard({
   const [selectedTrustLevel, setSelectedTrustLevel] = useState<TrustLevel>(settings.defaultTrustLevel);
   const [alwaysAllow, setAlwaysAllow] = useState(false);
 
-  const { Icon: MethodIcon, category } = getMethodInfo(request.method);
+  const { Icon: MethodIcon } = getMethodInfo(request.method);
   const isApproving = meta.state === 'approving';
   const isPending = request.state === 'pending';
   const canApprove = isPending && !isApproving;

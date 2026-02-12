@@ -60,6 +60,8 @@ The signed APK will be at `app/build/outputs/apk/release/signet-<version>-releas
 
 - **QR code scanner**: Scan the QR code from daemon startup to quickly configure the server URL
 - **Bunker URI QR codes**: Generate one-time connection tokens and display as scannable QR codes with countdown timer
+- **Deep link support**: Tap `nostrconnect://` links to open directly in Signet
+- **Share target**: Share text containing `nostrconnect://` URIs from other apps to Signet
 - **Real-time notifications**: Get notified immediately when apps request approval
 - **Background service**: Maintains connection to daemon even when app is closed
 - **Auto-start on boot**: Service starts automatically when your device boots

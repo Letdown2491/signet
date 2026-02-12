@@ -74,7 +74,7 @@ export function RequestDetailsModal({
   const eventContent = request.eventPreview?.content ?? parsedEvent?.content ?? '';
   const eventTags = request.eventPreview?.tags ?? parsedEvent?.tags ?? [];
 
-  const { Icon, category } = getMethodInfo(request.method);
+  const { Icon } = getMethodInfo(request.method);
   const risk = getPermissionRisk(request.method);
 
   const handleCopy = async () => {

@@ -35,3 +35,22 @@ export const VALID_TRUST_LEVELS = ['paranoid', 'reasonable', 'full'] as const;
 // ACL cache
 export const ACL_CACHE_TTL_MS = 30_000; // 30 seconds
 export const ACL_CACHE_MAX_SIZE = 1000;
+
+// Subscription manager
+export const SUBSCRIPTION_HEALTH_CHECK_INTERVAL_MS = 90_000; // 90 seconds
+export const SUBSCRIPTION_RECREATION_TIMEOUT_MS = 10_000; // 10 seconds
+export const SUBSCRIPTION_RESTART_DEBOUNCE_MS = 2_000; // 2 seconds
+
+// Relay pool
+export const RELAY_WATCHDOG_FAILURE_THRESHOLD = 3; // failures before reset
+export const RELAY_WATCHDOG_RESET_COOLDOWN_MS = 5 * 60_000; // 5 minutes between resets
+export const RELAY_HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+export const RELAY_SLEEP_DETECTION_THRESHOLD_MS = RELAY_HEARTBEAT_INTERVAL_MS * 3; // 90 seconds
+
+// Input validation limits
+export const MAX_KEY_NAME_LENGTH = 64;
+export const MAX_APP_NAME_LENGTH = 128;
+export const MIN_PASSPHRASE_LENGTH = 8; // Minimum for security
+export const MAX_PASSPHRASE_LENGTH = 128;
+export const MAX_URI_LENGTH = 2048;
+export const MAX_RELAYS_PER_CONNECTION = 10;

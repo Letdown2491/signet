@@ -1,6 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { KeyInfo } from '@signet/types';
-import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api-client.js';
+import type { KeyInfo, EncryptionFormat } from '@signet/types';
+import {
+    apiGet,
+    apiPost,
+    apiPatch,
+    apiDelete,
+    lockAllKeys as lockAllKeysApi,
+    encryptKey as encryptKeyApi,
+    migrateKeyToNip49 as migrateKeyApi,
+    exportKey as exportKeyApi,
+} from '../lib/api-client.js';
 import { buildErrorMessage } from '../lib/formatters.js';
 import { useMutation } from './useMutation.js';
 import { useSSESubscription } from '../contexts/ServerEventsContext.js';
@@ -17,18 +26,32 @@ interface UseKeysResult {
     loading: boolean;
     error: string | null;
     refresh: () => Promise<void>;
-    createKey: (data: { keyName: string; passphrase?: string; nsec?: string }) => Promise<KeyInfo | null>;
+    createKey: (data: {
+        keyName: string;
+        passphrase?: string;
+        confirmPassphrase?: string;
+        nsec?: string;
+        encryption?: EncryptionFormat;
+    }) => Promise<KeyInfo | null>;
     deleteKey: (keyName: string, passphrase?: string) => Promise<{ success: boolean; revokedApps?: number }>;
     unlockKey: (keyName: string, passphrase: string) => Promise<boolean>;
     lockKey: (keyName: string) => Promise<boolean>;
+    lockAllKeys: () => Promise<{ success: boolean; lockedCount?: number }>;
     renameKey: (keyName: string, newName: string) => Promise<boolean>;
     setPassphrase: (keyName: string, passphrase: string) => Promise<boolean>;
+    encryptKey: (keyName: string, encryption: 'nip49' | 'legacy', passphrase: string, confirmPassphrase: string) => Promise<boolean>;
+    migrateKey: (keyName: string, passphrase: string) => Promise<boolean>;
+    exportKey: (keyName: string, format: 'nsec' | 'nip49', currentPassphrase?: string, exportPassphrase?: string, confirmExportPassphrase?: string) => Promise<{ key?: string; format?: 'nsec' | 'ncryptsec' } | null>;
     creating: boolean;
     deleting: boolean;
     unlocking: string | null;  // Key name being unlocked, or null
     locking: string | null;    // Key name being locked, or null
+    lockingAll: boolean;
     renaming: boolean;
     settingPassphrase: boolean;
+    encrypting: boolean;
+    migrating: boolean;
+    exporting: boolean;
     clearError: () => void;
 }
 
@@ -82,7 +105,13 @@ export function useKeys(): UseKeysResult {
 
     // Create key mutation
     const createMutation = useMutation(
-        async (data: { keyName: string; passphrase?: string; nsec?: string }) => {
+        async (data: {
+            keyName: string;
+            passphrase?: string;
+            confirmPassphrase?: string;
+            nsec?: string;
+            encryption?: EncryptionFormat;
+        }) => {
             if (!data.keyName.trim()) {
                 throw new Error('Key name is required');
             }
@@ -139,6 +168,18 @@ export function useKeys(): UseKeysResult {
         { errorPrefix: 'Failed to lock key', onSuccess: refresh, onError: setError }
     );
 
+    // Lock all keys mutation
+    const lockAllMutation = useMutation(
+        async () => {
+            const result = await lockAllKeysApi();
+            if (!result.ok) {
+                throw new Error(result.error || 'Failed to lock all keys');
+            }
+            return { success: true, lockedCount: result.lockedCount };
+        },
+        { errorPrefix: 'Failed to lock all keys', onSuccess: refresh, onError: setError }
+    );
+
     // Rename key mutation
     const renameMutation = useMutation(
         async ({ keyName, newName }: { keyName: string; newName: string }) => {
@@ -175,8 +216,78 @@ export function useKeys(): UseKeysResult {
         { errorPrefix: 'Failed to set passphrase', onSuccess: refresh, onError: setError }
     );
 
+    // Encrypt key mutation
+    const encryptMutation = useMutation(
+        async ({
+            keyName,
+            encryption,
+            passphrase,
+            confirmPassphrase,
+        }: {
+            keyName: string;
+            encryption: 'nip49' | 'legacy';
+            passphrase: string;
+            confirmPassphrase: string;
+        }) => {
+            const result = await encryptKeyApi(keyName, encryption, passphrase, confirmPassphrase);
+            if (!result.ok) {
+                throw new Error(result.error || 'Failed to encrypt key');
+            }
+            return true;
+        },
+        { errorPrefix: 'Failed to encrypt key', onSuccess: refresh, onError: setError }
+    );
+
+    // Migrate key to NIP-49 mutation
+    const migrateMutation = useMutation(
+        async ({ keyName, passphrase }: { keyName: string; passphrase: string }) => {
+            const result = await migrateKeyApi(keyName, passphrase);
+            if (!result.ok) {
+                throw new Error(result.error || 'Failed to migrate key');
+            }
+            return true;
+        },
+        { errorPrefix: 'Failed to migrate key', onSuccess: refresh, onError: setError }
+    );
+
+    // Export key mutation
+    const exportMutation = useMutation(
+        async ({
+            keyName,
+            format,
+            currentPassphrase,
+            exportPassphrase,
+            confirmExportPassphrase,
+        }: {
+            keyName: string;
+            format: 'nsec' | 'nip49';
+            currentPassphrase?: string;
+            exportPassphrase?: string;
+            confirmExportPassphrase?: string;
+        }) => {
+            const result = await exportKeyApi(
+                keyName,
+                format,
+                currentPassphrase,
+                exportPassphrase,
+                confirmExportPassphrase
+            );
+            if (!result.ok) {
+                throw new Error(result.error || 'Failed to export key');
+            }
+            return { key: result.key, format: result.format };
+        },
+        { errorPrefix: 'Failed to export key', onError: setError }
+    );
+
     // Wrapper functions to maintain the same API
-    const createKey = useCallback(async (data: { keyName: string; passphrase?: string; nsec?: string }) => {
+    const createKey = useCallback(async (data: {
+        keyName: string;
+        passphrase?: string;
+        confirmPassphrase?: string;
+        nsec?: string;
+        encryption?: EncryptionFormat;
+    }) => {
         return createMutation.mutate(data);
     }, [createMutation]);
 
@@ -205,6 +316,11 @@ export function useKeys(): UseKeysResult {
         }
     }, [lockMutation]);
 
+    const lockAllKeys = useCallback(async () => {
+        const result = await lockAllMutation.mutate(undefined);
+        return result ?? { success: false };
+    }, [lockAllMutation]);
+
     const renameKey = useCallback(async (keyName: string, newName: string) => {
         const result = await renameMutation.mutate({ keyName, newName });
         return result ?? false;
@@ -214,6 +330,38 @@ export function useKeys(): UseKeysResult {
         const result = await setPassphraseMutation.mutate({ keyName, passphrase });
         return result ?? false;
     }, [setPassphraseMutation]);
+
+    const encryptKey = useCallback(async (
+        keyName: string,
+        encryption: 'nip49' | 'legacy',
+        passphrase: string,
+        confirmPassphrase: string
+    ) => {
+        const result = await encryptMutation.mutate({ keyName, encryption, passphrase, confirmPassphrase });
+        return result ?? false;
+    }, [encryptMutation]);
+
+    const migrateKey = useCallback(async (keyName: string, passphrase: string) => {
+        const result = await migrateMutation.mutate({ keyName, passphrase });
+        return result ?? false;
+    }, [migrateMutation]);
+
+    const exportKey = useCallback(async (
+        keyName: string,
+        format: 'nsec' | 'nip49',
+        currentPassphrase?: string,
+        exportPassphrase?: string,
+        confirmExportPassphrase?: string
+    ) => {
+        const result = await exportMutation.mutate({
+            keyName,
+            format,
+            currentPassphrase,
+            exportPassphrase,
+            confirmExportPassphrase,
+        });
+        return result ?? null;
+    }, [exportMutation]);
 
     const clearError = useCallback(() => {
         setError(null);
@@ -225,8 +373,12 @@ export function useKeys(): UseKeysResult {
         || deleteMutation.error
         || unlockMutation.error
         || lockMutation.error
+        || lockAllMutation.error
         || renameMutation.error
-        || setPassphraseMutation.error;
+        || setPassphraseMutation.error
+        || encryptMutation.error
+        || migrateMutation.error
+        || exportMutation.error;
 
     return {
         keys,
@@ -237,14 +389,22 @@ export function useKeys(): UseKeysResult {
         deleteKey,
         unlockKey,
         lockKey,
+        lockAllKeys,
         renameKey,
         setPassphrase,
+        encryptKey,
+        migrateKey,
+        exportKey,
         creating: createMutation.loading,
         deleting: deleteMutation.loading,
         unlocking: unlockingKeyName,
         locking: lockingKeyName,
+        lockingAll: lockAllMutation.loading,
         renaming: renameMutation.loading,
         settingPassphrase: setPassphraseMutation.loading,
+        encrypting: encryptMutation.loading,
+        migrating: migrateMutation.loading,
+        exporting: exportMutation.loading,
         clearError,
     };
 }

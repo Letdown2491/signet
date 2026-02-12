@@ -6,9 +6,41 @@ import { SettingsProvider } from '../../contexts/SettingsContext';
 import { createMockDashboardStats, createMockActivityEntry } from '../../testing/mocks';
 
 // Mock the api-client module
-vi.mock('../../lib/api-client.js', () => ({
-  apiGet: vi.fn(),
-}));
+// Note: vi.mock is hoisted, so class definitions must be inline
+vi.mock('../../lib/api-client.js', () => {
+  class MockApiError extends Error {
+    public readonly status: number;
+    public readonly statusText: string;
+    public readonly body?: string;
+    constructor(
+      message: string,
+      status: number = 0,
+      statusText: string = '',
+      body?: string
+    ) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+      this.statusText = statusText;
+      this.body = body;
+    }
+  }
+
+  class MockTimeoutError extends Error {
+    public readonly timeoutMs: number;
+    constructor(message: string, timeoutMs: number = 0) {
+      super(message);
+      this.name = 'TimeoutError';
+      this.timeoutMs = timeoutMs;
+    }
+  }
+
+  return {
+    apiGet: vi.fn(),
+    ApiError: MockApiError,
+    TimeoutError: MockTimeoutError,
+  };
+});
 
 // Mock the ServerEventsContext to avoid SSE setup in tests
 vi.mock('../../contexts/ServerEventsContext.js', () => ({

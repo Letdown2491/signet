@@ -33,6 +33,7 @@ const apiPaths = [
   '/apps',
   '/dashboard',
   '/health',
+  '/logs',
   '/tokens',
   '/policies',
   '/csrf-token',

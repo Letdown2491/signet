@@ -35,7 +35,7 @@ interface HomeViewProps {
   onNavigateToKeys: () => void;
   onNavigateToApps: () => void;
   onToggleShowAutoApproved: () => void;
-  onLockNow?: (keyName: string, passphrase: string) => Promise<{ ok: boolean; error?: string }>;
+  onReset?: (keyName: string, passphrase: string) => Promise<{ ok: boolean; error?: string; remainingAttempts?: number }>;
 }
 
 export function HomeView({
@@ -62,7 +62,7 @@ export function HomeView({
   onNavigateToKeys,
   onNavigateToApps,
   onToggleShowAutoApproved,
-  onLockNow,
+  onReset,
 }: HomeViewProps) {
   const [statusModalOpen, setStatusModalOpen] = useState(false);
 
@@ -127,7 +127,7 @@ export function HomeView({
         deadManSwitchCountdown={deadManSwitchCountdown}
         deadManSwitchUrgency={deadManSwitchUrgency}
         keys={keys}
-        onLockNow={onLockNow}
+        onReset={onReset}
       />
 
       {/* Onboarding - show when no keys exist at all */}

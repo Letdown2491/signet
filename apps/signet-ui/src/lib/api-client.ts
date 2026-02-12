@@ -1,4 +1,61 @@
+// Default request timeout (30 seconds)
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 const CSRF_COOKIE_NAME = 'signet_csrf';
+
+/**
+ * Custom error class that preserves HTTP status code for better error handling.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly statusText: string,
+    public readonly body?: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+
+  get isCsrfError(): boolean {
+    return this.status === 403 && (
+      this.body?.toLowerCase().includes('csrf') ?? false
+    );
+  }
+
+  get isAuthError(): boolean {
+    return this.status === 401;
+  }
+
+  get isNotFound(): boolean {
+    return this.status === 404;
+  }
+
+  get isServerError(): boolean {
+    return this.status >= 500;
+  }
+}
+
+/**
+ * Error thrown when a request times out.
+ */
+export class TimeoutError extends Error {
+  constructor(message: string, public readonly timeoutMs: number) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
+/**
+ * In-flight request tracker for deduplication.
+ * Prevents multiple simultaneous identical requests.
+ */
+const inFlightRequests = new Map<string, Promise<Response>>();
+
+function getRequestKey(path: string, method: string, body?: unknown): string {
+  const bodyKey = body ? JSON.stringify(body) : '';
+  return `${method}:${path}:${bodyKey}`;
+}
 
 function getCsrfTokenFromCookie(): string | null {
   const match = document.cookie.match(new RegExp(`${CSRF_COOKIE_NAME}=([^;]+)`));
@@ -76,6 +133,29 @@ function composeUrl(base: string, path: string): string {
 
 export interface ApiOptions {
   expectJson?: boolean;
+  /** Request timeout in milliseconds. Defaults to 30 seconds. */
+  timeoutMs?: number;
+  /** Skip deduplication for this request. */
+  skipDedup?: boolean;
+}
+
+/**
+ * Create an AbortController with a timeout.
+ * Returns both the controller and a cleanup function.
+ */
+function createTimeoutController(timeoutMs: number): {
+  controller: AbortController;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  return {
+    controller,
+    cleanup: () => clearTimeout(timeoutId),
+  };
 }
 
 export async function callApi(
@@ -84,23 +164,36 @@ export async function callApi(
   options?: ApiOptions
 ): Promise<Response> {
   const attempts: string[] = [];
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   for (const base of apiBases) {
     const target = composeUrl(base, path);
+    const { controller, cleanup } = createTimeoutController(timeoutMs);
+
     try {
       const response = await fetch(target, {
         ...init,
         credentials: 'include',
+        signal: controller.signal,
       });
+
+      cleanup();
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        const detail = `${response.status} ${response.statusText}${body ? ` – ${body}` : ''}`;
+        // For certain status codes, try the next endpoint
         if ([404, 502, 503].includes(response.status)) {
+          const detail = `${response.status} ${response.statusText}${body ? ` – ${body}` : ''}`;
           attempts.push(`${target}: ${detail}`);
           continue;
         }
-        throw new Error(`${target}: ${detail}`);
+        // Throw structured error with status code preserved
+        throw new ApiError(
+          `${target}: ${response.status} ${response.statusText}${body ? ` – ${body}` : ''}`,
+          response.status,
+          response.statusText,
+          body
+        );
       }
 
       if (options?.expectJson) {
@@ -115,15 +208,32 @@ export async function callApi(
 
       return response;
     } catch (error) {
+      cleanup();
+
+      // Handle abort (timeout)
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new TimeoutError(
+          `Request to ${target} timed out after ${timeoutMs}ms`,
+          timeoutMs
+        );
+      }
+
+      // Network errors - try next endpoint
       if (error instanceof TypeError) {
         attempts.push(`${target}: ${error.message}`);
         continue;
       }
+
+      // Re-throw ApiError and other errors
       throw error;
     }
   }
 
-  throw new Error(attempts.length ? attempts.join('; ') : 'No API endpoints reachable');
+  throw new ApiError(
+    attempts.length ? attempts.join('; ') : 'No API endpoints reachable',
+    0,
+    'Network Error'
+  );
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
@@ -138,33 +248,52 @@ async function mutationRequest(
   isRetry = false
 ): Promise<Response> {
   const csrfToken = await ensureCsrfToken();
+  const requestKey = getRequestKey(path, method, body);
 
-  try {
-    const response = await callApi(
-      path,
-      {
-        method,
-        headers: {
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
-          'X-CSRF-Token': csrfToken,
+  // Check for in-flight duplicate request
+  const existingRequest = inFlightRequests.get(requestKey);
+  if (existingRequest) {
+    // Return a clone of the response since Response body can only be read once
+    const response = await existingRequest;
+    return response.clone();
+  }
+
+  const requestPromise = (async (): Promise<Response> => {
+    try {
+      const response = await callApi(
+        path,
+        {
+          method,
+          headers: {
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+            'X-CSRF-Token': csrfToken,
+          },
+          body: body ? JSON.stringify(body) : undefined,
         },
-        body: body ? JSON.stringify(body) : undefined,
-      },
-      { expectJson: true }
-    );
-    return response;
-  } catch (error) {
-    // If CSRF failed and not already retrying, refresh token and retry once
-    if (!isRetry && error instanceof Error && error.message.includes('403')) {
-      const isCsrfError =
-        error.message.includes('CSRF') ||
-        error.message.includes('csrf');
-      if (isCsrfError) {
+        { expectJson: true }
+      );
+      return response;
+    } catch (error) {
+      // If CSRF failed and not already retrying, refresh token and retry once
+      if (!isRetry && error instanceof ApiError && error.isCsrfError) {
         await callApi('/csrf-token'); // Refresh cookie
+        // Remove from in-flight before retry to allow retry to be tracked
+        inFlightRequests.delete(requestKey);
         return mutationRequest(path, method, body, true);
       }
+      throw error;
     }
-    throw error;
+  })();
+
+  // Track in-flight request
+  inFlightRequests.set(requestKey, requestPromise);
+
+  try {
+    const response = await requestPromise;
+    return response;
+  } finally {
+    // Clean up after request completes (success or failure)
+    inFlightRequests.delete(requestKey);
   }
 }
 
@@ -347,4 +476,105 @@ export async function testDeadManSwitchPanic(keyName: string, passphrase: string
   remainingAttempts?: number;
 }> {
   return apiPost('/dead-man-switch/test-panic', { keyName, passphrase });
+}
+
+/**
+ * Lock all active encrypted keys.
+ */
+export async function lockAllKeys(): Promise<{
+  ok: boolean;
+  lockedCount: number;
+  error?: string;
+}> {
+  return apiPost('/keys/lock-all');
+}
+
+/**
+ * Suspend all active apps.
+ * @param until - Optional ISO date string when suspension should automatically end
+ */
+export async function suspendAllApps(until?: string): Promise<{
+  ok: boolean;
+  suspendedCount: number;
+  error?: string;
+}> {
+  return apiPost('/apps/suspend-all', until ? { until } : undefined);
+}
+
+/**
+ * Resume all suspended apps.
+ */
+export async function resumeAllApps(): Promise<{
+  ok: boolean;
+  resumedCount: number;
+  error?: string;
+}> {
+  return apiPost('/apps/resume-all');
+}
+
+/**
+ * Encrypt an unencrypted key with a passphrase.
+ */
+export async function encryptKey(
+  keyName: string,
+  encryption: 'nip49' | 'legacy',
+  passphrase: string,
+  confirmPassphrase: string
+): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  return apiPost(`/keys/${encodeURIComponent(keyName)}/encrypt`, {
+    encryption,
+    passphrase,
+    confirmPassphrase,
+  });
+}
+
+/**
+ * Migrate a legacy-encrypted key to NIP-49 format.
+ */
+export async function migrateKeyToNip49(
+  keyName: string,
+  passphrase: string
+): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  return apiPost(`/keys/${encodeURIComponent(keyName)}/migrate`, {
+    passphrase,
+  });
+}
+
+/**
+ * Export a key in nsec or NIP-49 (ncryptsec) format.
+ */
+export async function exportKey(
+  keyName: string,
+  format: 'nsec' | 'nip49',
+  currentPassphrase?: string,
+  exportPassphrase?: string,
+  confirmExportPassphrase?: string
+): Promise<{
+  ok: boolean;
+  key?: string;
+  format?: 'nsec' | 'ncryptsec';
+  error?: string;
+}> {
+  return apiPost(`/keys/${encodeURIComponent(keyName)}/export`, {
+    format,
+    currentPassphrase,
+    exportPassphrase,
+    confirmExportPassphrase,
+  });
+}
+
+/**
+ * Fetch trust scores for arbitrary relay URLs.
+ * Used by NostrConnect modal to show scores for app-specified relays.
+ */
+export async function getRelayTrustScores(relays: string[]): Promise<{
+  scores: Record<string, number | null>;
+}> {
+  return apiPost('/relays/trust-scores', { relays });
 }

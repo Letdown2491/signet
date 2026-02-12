@@ -4,12 +4,14 @@ import { ErrorIcon, RefreshIcon } from './Icons.js';
 import styles from './ErrorMessage.module.css';
 
 interface ErrorMessageProps {
-  error: string;
+  /** Error to display - can be a string message, Error object, or ApiError */
+  error: unknown;
   onRetry?: () => void;
   retrying?: boolean;
 }
 
 export function ErrorMessage({ error, onRetry, retrying = false }: ErrorMessageProps) {
+  // Pass error directly - getHelpfulErrorMessage handles all error types
   const helpful = getHelpfulErrorMessage(error);
 
   return (

@@ -1,5 +1,5 @@
 // Connection types
-export type { ConnectionInfo, RelayStatus, RelayStatusResponse } from './connection.js';
+export type { ConnectionInfo, RelayStatus, RelayStatusResponse, RelayTrustScoreResponse } from './connection.js';
 
 // Request types
 export type {
@@ -44,3 +44,6 @@ export type {
 
 // Health types
 export type { HealthStatus } from './health.js';
+
+// Log types
+export type { LogLevel, LogEntry, LogsResponse, LogFilterParams } from './logs.js';

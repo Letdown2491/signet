@@ -159,7 +159,7 @@ fun QRScannerSheet(
                 // Show invalid QR feedback or hint text
                 if (invalidQRMessage != null) {
                     Text(
-                        text = invalidQRMessage!!,
+                        text = invalidQRMessage ?: "",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Warning,
                         modifier = Modifier.align(Alignment.CenterHorizontally)

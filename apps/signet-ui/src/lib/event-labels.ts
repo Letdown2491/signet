@@ -1,5 +1,8 @@
-import type { ComponentType } from 'react';
+import type { ComponentType, SVGProps } from 'react';
 import type { LucideProps } from 'lucide-react';
+
+// Extended props type that includes className for dynamic icon components
+type IconProps = LucideProps & SVGProps<SVGSVGElement>;
 import {
   Pen,
   Lock,
@@ -38,7 +41,7 @@ export function getPermissionRisk(permission: string): PermissionRisk {
 export type MethodCategory = 'sign' | 'encrypt' | 'decrypt' | 'auth' | 'other';
 
 export interface MethodInfo {
-  Icon: ComponentType<LucideProps>;
+  Icon: ComponentType<IconProps>;
   category: MethodCategory;
 }
 
@@ -63,7 +66,7 @@ export function getMethodInfo(method: string): MethodInfo {
 export interface TrustLevelInfo {
   label: string;
   description: string;
-  Icon: ComponentType<LucideProps>;
+  Icon: ComponentType<IconProps>;
 }
 
 export function getTrustLevelInfo(level: TrustLevel): TrustLevelInfo {

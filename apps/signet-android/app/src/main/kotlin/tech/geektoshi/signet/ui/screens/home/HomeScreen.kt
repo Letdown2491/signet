@@ -26,7 +26,10 @@ import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Power
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Button
@@ -216,16 +219,16 @@ fun HomeScreen(
             uiStatus = health.toUIStatus(),
             deadManSwitchStatus = deadManSwitchStatus,
             keys = keys,
-            onLockNow = { keyName, passphrase ->
+            onReset = { keyName, passphrase ->
                 try {
                     val client = SignetApiClient(daemonUrl)
-                    val result = client.testDeadManSwitchPanic(keyName, passphrase)
+                    val result = client.resetDeadManSwitch(keyName, passphrase)
                     client.close()
                     if (result.ok) {
                         result.status?.let { deadManSwitchStatus = it }
                         Result.success(Unit)
                     } else {
-                        Result.failure(Exception(result.error ?: "Failed to trigger panic"))
+                        Result.failure(Exception(result.error ?: "Failed to reset timer"))
                     }
                 } catch (e: Exception) {
                     Result.failure(e)
@@ -310,7 +313,7 @@ fun HomeScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = error!!,
+                    text = error ?: "Unknown error",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
@@ -407,7 +410,7 @@ fun HomeScreen(
                     )
                 }
             } else {
-                items(pendingRequests) { request ->
+                items(pendingRequests, key = { it.id }) { request ->
                     PendingRequestCard(
                         request = request,
                         onClick = { selectedRequest = request }
@@ -435,7 +438,7 @@ fun HomeScreen(
                     )
                 }
             } else {
-                items(activities.take(5)) { activity ->
+                items(activities.take(5), key = { it.id }) { activity ->
                     ActivityCard(activity = activity)
                 }
             }
@@ -469,7 +472,7 @@ private fun StatCard(
         ) {
             Text(
                 text = value,
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineMedium,
                 color = TextPrimary
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -558,6 +561,9 @@ private fun ActivityCard(activity: MixedActivityEntry) {
                             "daemon_started" -> activity.clientVersion?.let { "v$it" } ?: "Signet"
                             "status_checked" -> "System status"
                             "command_executed" -> activity.command ?: "Unknown command"
+                            "auth_failed" -> "Authentication"
+                            "panic_triggered" -> "All keys locked"
+                            "deadman_reset" -> "Timer"
                             else -> activity.keyName ?: activity.appName ?: "Unknown"
                         },
                         style = MaterialTheme.typography.titleSmall,
@@ -651,12 +657,18 @@ private fun getAdminEventIcon(eventType: String): ImageVector {
     return when (eventType) {
         "key_locked" -> Icons.Outlined.Lock
         "key_unlocked" -> Icons.Outlined.LockOpen
+        "key_encrypted" -> Icons.Outlined.Lock
+        "key_migrated" -> Icons.Outlined.Key
+        "key_exported" -> Icons.Outlined.FileDownload
+        "auth_failed" -> Icons.Outlined.Warning
         "app_connected" -> Icons.Outlined.Link
         "app_suspended" -> Icons.Outlined.Pause
         "app_unsuspended" -> Icons.Outlined.PlayArrow
         "daemon_started" -> Icons.Outlined.Power
         "status_checked" -> Icons.Outlined.Search
         "command_executed" -> Icons.Outlined.Build
+        "panic_triggered" -> Icons.Outlined.Warning
+        "deadman_reset" -> Icons.Outlined.Timer
         else -> Icons.Outlined.Info
     }
 }
@@ -666,12 +678,18 @@ private fun getAdminEventLabel(eventType: String): String {
     return when (eventType) {
         "key_locked" -> "Key locked"
         "key_unlocked" -> "Key unlocked"
+        "key_encrypted" -> "Key encrypted"
+        "key_migrated" -> "Encryption migrated"
+        "key_exported" -> "Key exported"
+        "auth_failed" -> "Auth failed"
         "app_connected" -> "App connected"
         "app_suspended" -> "App suspended"
         "app_unsuspended" -> "App resumed"
         "daemon_started" -> "Daemon started"
         "status_checked" -> "Status checked"
         "command_executed" -> "Command executed"
+        "panic_triggered" -> "Panic triggered"
+        "deadman_reset" -> "Inactivity timer reset"
         else -> eventType
     }
 }

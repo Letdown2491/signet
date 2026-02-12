@@ -6,13 +6,10 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,7 +18,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -67,13 +63,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.model.KeyInfo
-import tech.geektoshi.signet.ui.theme.BgPrimary
 import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.BgTertiary
 import tech.geektoshi.signet.ui.theme.BorderDefault
 import tech.geektoshi.signet.ui.theme.Danger
 import tech.geektoshi.signet.ui.theme.SignetPurple
-import tech.geektoshi.signet.ui.theme.Success
 import tech.geektoshi.signet.ui.theme.TextMuted
 import tech.geektoshi.signet.ui.theme.TextPrimary
 import tech.geektoshi.signet.ui.theme.TextSecondary
@@ -81,192 +75,7 @@ import tech.geektoshi.signet.ui.theme.Warning
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-/**
- * Parsed nostrconnect URI data
- */
-data class ParsedNostrconnect(
-    val clientPubkey: String,
-    val relays: List<String>,
-    val secret: String,
-    val permissions: List<String>,
-    val name: String?,
-    val url: String?
-)
-
-/**
- * Parse a nostrconnect:// URI
- */
-fun parseNostrconnectUri(uri: String): Result<ParsedNostrconnect> {
-    val trimmed = uri.trim()
-
-    if (!trimmed.startsWith("nostrconnect://")) {
-        return Result.failure(Exception("URI must start with nostrconnect://"))
-    }
-
-    val withoutScheme = trimmed.substring("nostrconnect://".length)
-    if (withoutScheme.isEmpty() || withoutScheme.startsWith("?")) {
-        return Result.failure(Exception("Client pubkey is required"))
-    }
-
-    return try {
-        // Parse using URL-like structure
-        val questionIndex = withoutScheme.indexOf('?')
-        val clientPubkey = if (questionIndex >= 0) {
-            withoutScheme.substring(0, questionIndex).lowercase()
-        } else {
-            withoutScheme.lowercase()
-        }
-
-        if (!clientPubkey.matches(Regex("^[0-9a-f]{64}$"))) {
-            return Result.failure(Exception("Client pubkey must be 64 hex characters"))
-        }
-
-        val params = if (questionIndex >= 0) {
-            withoutScheme.substring(questionIndex + 1)
-                .split("&")
-                .mapNotNull { param ->
-                    val eqIndex = param.indexOf('=')
-                    if (eqIndex > 0) {
-                        val key = param.substring(0, eqIndex)
-                        val value = java.net.URLDecoder.decode(param.substring(eqIndex + 1), "UTF-8")
-                        key to value
-                    } else null
-                }
-                .groupBy({ it.first }, { it.second })
-        } else {
-            emptyMap()
-        }
-
-        val rawRelays = params["relay"] ?: emptyList()
-        if (rawRelays.isEmpty()) {
-            return Result.failure(Exception("At least one relay is required"))
-        }
-
-        // Validate and normalize relays
-        val relays = mutableListOf<String>()
-        val invalidRelays = mutableListOf<String>()
-        for (relay in rawRelays) {
-            val normalized = normalizeRelayUrl(relay)
-            if (normalized != null) {
-                relays.add(normalized)
-            } else if (relay.trim().isNotEmpty()) {
-                invalidRelays.add(relay)
-            }
-        }
-
-        if (relays.isEmpty()) {
-            val invalidList = if (invalidRelays.isNotEmpty()) ": ${invalidRelays.joinToString(", ")}" else ""
-            return Result.failure(Exception("No valid relay URLs$invalidList"))
-        }
-
-        val secret = params["secret"]?.firstOrNull()
-        if (secret.isNullOrEmpty()) {
-            return Result.failure(Exception("Secret is required"))
-        }
-
-        val permissions = params["perms"]?.firstOrNull()
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?: emptyList()
-
-        Result.success(ParsedNostrconnect(
-            clientPubkey = clientPubkey,
-            relays = relays,
-            secret = secret,
-            permissions = permissions,
-            name = params["name"]?.firstOrNull(),
-            url = params["url"]?.firstOrNull()
-        ))
-    } catch (e: Exception) {
-        Result.failure(Exception("Invalid URI format"))
-    }
-}
-
-private val WSS_RELAY_REGEX = Regex("^wss?://.+", RegexOption.IGNORE_CASE)
-
-/**
- * Normalize and validate a relay URL.
- * Returns the normalized URL or null if invalid.
- */
-private fun normalizeRelayUrl(relay: String): String? {
-    val trimmed = relay.trim()
-    if (trimmed.isEmpty()) return null
-
-    // Add wss:// if no scheme
-    val normalized = if (trimmed.startsWith("wss://") || trimmed.startsWith("ws://")) {
-        trimmed
-    } else {
-        "wss://$trimmed"
-    }
-
-    // Validate the URL format
-    if (!WSS_RELAY_REGEX.matches(normalized)) {
-        return null
-    }
-
-    // Try to parse as URL to catch malformed URLs
-    return try {
-        java.net.URL(normalized.replace("wss://", "https://").replace("ws://", "http://"))
-        normalized
-    } catch (e: Exception) {
-        null
-    }
-}
-
-/**
- * Format a permission for display
- */
-fun formatPermission(perm: String): String {
-    val methodLabels = mapOf(
-        "sign_event" to "Sign events",
-        "nip04_encrypt" to "NIP-04 encryption",
-        "nip04_decrypt" to "NIP-04 decryption",
-        "nip44_encrypt" to "NIP-44 encryption",
-        "nip44_decrypt" to "NIP-44 decryption",
-        "get_public_key" to "Get public key",
-        "connect" to "Connect",
-        "ping" to "Ping"
-    )
-
-    val kindLabels = mapOf(
-        0 to "profile metadata",
-        1 to "notes",
-        3 to "contact list",
-        4 to "DMs (NIP-04)",
-        6 to "reposts",
-        7 to "reactions",
-        9734 to "zap requests",
-        9735 to "zap receipts",
-        10002 to "relay list",
-        30023 to "long-form content"
-    )
-
-    return if (perm.contains(":")) {
-        val parts = perm.split(":")
-        val method = parts[0]
-        val kind = parts.getOrNull(1)?.toIntOrNull()
-        if (method == "sign_event" && kind != null) {
-            val kindLabel = kindLabels[kind] ?: "kind $kind"
-            "Sign $kindLabel"
-        } else {
-            methodLabels[method] ?: perm
-        }
-    } else {
-        methodLabels[perm] ?: perm
-    }
-}
-
-/**
- * Truncate a pubkey for display
- */
-fun truncatePubkey(pubkey: String): String {
-    return if (pubkey.length > 16) {
-        "${pubkey.take(8)}...${pubkey.takeLast(8)}"
-    } else pubkey
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectAppSheet(
     keys: List<KeyInfo>,
@@ -294,6 +103,8 @@ fun ConnectAppSheet(
     var error by remember { mutableStateOf<String?>(null) }
     var parseError by remember { mutableStateOf<String?>(null) }
     var parsedData by remember { mutableStateOf<ParsedNostrconnect?>(null) }
+    var relayScores by remember { mutableStateOf<Map<String, Int?>>(emptyMap()) }
+    var loadingScores by remember { mutableStateOf(false) }
 
     // Bunker URI state
     var bunkerKeyName by remember { mutableStateOf("") }
@@ -326,6 +137,7 @@ fun ConnectAppSheet(
         if (uri.isBlank()) {
             parsedData = null
             parseError = null
+            relayScores = emptyMap()
             return@LaunchedEffect
         }
 
@@ -341,8 +153,31 @@ fun ConnectAppSheet(
             onFailure = { e ->
                 parsedData = null
                 parseError = e.message
+                relayScores = emptyMap()
             }
         )
+    }
+
+    // Fetch trust scores when relays are parsed
+    LaunchedEffect(parsedData?.relays) {
+        val relays = parsedData?.relays
+        if (relays.isNullOrEmpty()) {
+            relayScores = emptyMap()
+            return@LaunchedEffect
+        }
+
+        loadingScores = true
+        try {
+            val client = SignetApiClient(daemonUrl)
+            val response = client.getRelayTrustScores(relays)
+            client.close()
+            relayScores = response.scores
+        } catch (_: Exception) {
+            // Silently fail - scores are optional
+            relayScores = emptyMap()
+        } finally {
+            loadingScores = false
+        }
     }
 
     // Update URI if initialUri changes (e.g., from QR scan)
@@ -748,7 +583,7 @@ fun ConnectAppSheet(
 
                     if (parseError != null) {
                         Text(
-                            text = parseError!!,
+                            text = parseError ?: "Unknown error",
                             style = MaterialTheme.typography.bodySmall,
                             color = Danger
                         )
@@ -784,50 +619,18 @@ fun ConnectAppSheet(
                             )
                         )
 
-                        // Client Info
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(BgSecondary, RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Client", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                                Text(
-                                    truncatePubkey(data.clientPubkey),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextPrimary
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Relays", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                                Text(
-                                    data.relays.joinToString(", ") { it.removePrefix("wss://") },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextPrimary
-                                )
-                            }
-                            data.url?.let { url ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("URL", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                                    Text(
-                                        url.removePrefix("https://").removePrefix("http://"),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = SignetPurple
-                                    )
-                                }
-                            }
-                        }
+                        // Relays with trust scores
+                        Text(
+                            text = "Relays",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary
+                        )
+
+                        RelayBadgesGrid(
+                            relays = data.relays,
+                            scores = relayScores,
+                            isLoading = loadingScores
+                        )
 
                         // Key Selection
                         Text(
@@ -895,25 +698,7 @@ fun ConnectAppSheet(
                                 color = TextPrimary
                             )
 
-                            FlowRow(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(BgSecondary, RoundedCornerShape(8.dp))
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                data.permissions.forEach { perm ->
-                                    Text(
-                                        text = formatPermission(perm),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = SignetPurple,
-                                        modifier = Modifier
-                                            .background(SignetPurple.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
+                            PermissionsBadges(permissions = data.permissions)
 
                             Text(
                                 text = "These are what the app says it needs. Your trust level controls what actually gets auto-approved.",
@@ -991,118 +776,6 @@ fun ConnectAppSheet(
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
-        }
-    }
-}
-
-@Composable
-private fun KeyOption(
-    keyName: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .border(
-                width = 1.dp,
-                color = if (selected) SignetPurple else BorderDefault,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .background(if (selected) SignetPurple.copy(alpha = 0.1f) else BgTertiary)
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(20.dp)
-                .border(2.dp, if (selected) SignetPurple else TextMuted, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(SignetPurple, CircleShape)
-                )
-            }
-        }
-
-        Text(
-            text = keyName,
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextPrimary
-        )
-    }
-}
-
-@Composable
-private fun TrustLevelOption(
-    label: String,
-    description: String,
-    selected: Boolean,
-    recommended: Boolean = false,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .border(
-                width = 1.dp,
-                color = if (selected) SignetPurple else BorderDefault,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .background(if (selected) SignetPurple.copy(alpha = 0.1f) else BgTertiary)
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(20.dp)
-                .border(2.dp, if (selected) SignetPurple else TextMuted, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(SignetPurple, CircleShape)
-                )
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextPrimary
-                )
-                if (recommended) {
-                    Text(
-                        text = "Recommended",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Success,
-                        modifier = Modifier
-                            .background(Success.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextMuted
-            )
         }
     }
 }

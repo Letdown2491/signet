@@ -107,7 +107,7 @@ describe('RequestService', () => {
       await service.listRequests({});
 
       expect(mockRequestRepository.findMany).toHaveBeenCalledWith({
-        status: 'pending',
+        status: 'all',
         limit: 10,
         offset: 0,
       });

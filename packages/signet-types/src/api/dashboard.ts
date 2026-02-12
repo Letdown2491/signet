@@ -39,12 +39,18 @@ export interface ActivityEntry {
 export type AdminEventType =
     | 'key_locked'
     | 'key_unlocked'
+    | 'key_encrypted'
+    | 'key_migrated'
+    | 'key_exported'
+    | 'auth_failed'
     | 'app_connected'
     | 'app_suspended'
     | 'app_unsuspended'
     | 'daemon_started'
     | 'status_checked'
-    | 'command_executed';
+    | 'command_executed'
+    | 'panic_triggered'
+    | 'deadman_reset';
 
 /**
  * An admin activity entry (key lock/unlock, app suspend/unsuspend, daemon start, status check, command executed)

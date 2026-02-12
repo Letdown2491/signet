@@ -50,6 +50,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import tech.geektoshi.signet.data.model.KeyInfo
+import tech.geektoshi.signet.util.ClearSensitiveDataOnDispose
 import tech.geektoshi.signet.ui.theme.BgPrimary
 import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.BgTertiary
@@ -86,10 +87,14 @@ fun InactivityLockScreen(
     var selectedKeyName by remember(lockedKeys) {
         mutableStateOf(lockedKeys.firstOrNull()?.name ?: "")
     }
-    var passphrase by remember { mutableStateOf("") }
+    val passphraseState = remember { mutableStateOf("") }
+    var passphrase by passphraseState
     var resumeApps by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
+
+    // Clear sensitive data when screen is dismissed
+    ClearSensitiveDataOnDispose(passphraseState)
 
     Surface(
         modifier = Modifier.fillMaxSize(),

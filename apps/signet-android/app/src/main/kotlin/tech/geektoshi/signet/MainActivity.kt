@@ -1,6 +1,7 @@
 package tech.geektoshi.signet
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -25,6 +26,8 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.widget.Toast
+import tech.geektoshi.signet.data.repository.DeepLinkRepository
 import tech.geektoshi.signet.data.repository.SettingsRepository
 import tech.geektoshi.signet.service.SignetService
 import tech.geektoshi.signet.ui.components.BatteryOptimizationDialog
@@ -54,6 +57,9 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Handle deep link if app was launched via nostrconnect:// URI
+        handleDeepLink(intent)
+
         // Request notification permission using legacy API (compatible with FragmentActivity)
         requestNotificationPermission()
 
@@ -71,16 +77,20 @@ class MainActivity : FragmentActivity() {
             val batteryPromptShown by settingsRepository.batteryPromptShown.collectAsState(initial = true)
             val appLockEnabled by settingsRepository.appLockEnabled.collectAsState(initial = false)
             val lockTimeoutMinutes by settingsRepository.lockTimeoutMinutes.collectAsState(initial = 1)
+            val lastActivityTimestamp by settingsRepository.lastActivityTimestamp.collectAsState(initial = 0L)
             val scope = rememberCoroutineScope()
 
             var showBatteryDialog by remember { mutableStateOf(false) }
             var isUnlocked by remember { mutableStateOf(false) }
             var backgroundTimestamp by remember { mutableLongStateOf(0L) }
 
-            // When user enables app lock while in app, consider them already unlocked
-            LaunchedEffect(appLockEnabled) {
-                if (appLockEnabled) {
-                    isUnlocked = true
+            // Check on startup if we should auto-unlock based on persisted timestamp
+            LaunchedEffect(appLockEnabled, lockTimeoutMinutes, lastActivityTimestamp) {
+                if (appLockEnabled && lockTimeoutMinutes > 0 && lastActivityTimestamp > 0 && !isUnlocked) {
+                    val elapsedMinutes = (System.currentTimeMillis() - lastActivityTimestamp) / 60_000
+                    if (elapsedMinutes < lockTimeoutMinutes) {
+                        isUnlocked = true
+                    }
                 }
             }
 
@@ -91,6 +101,10 @@ class MainActivity : FragmentActivity() {
                     when (event) {
                         Lifecycle.Event.ON_PAUSE -> {
                             backgroundTimestamp = System.currentTimeMillis()
+                            // Persist timestamp for app close/reopen scenario
+                            scope.launch {
+                                settingsRepository.setLastActivityTimestamp(backgroundTimestamp)
+                            }
                         }
                         Lifecycle.Event.ON_RESUME -> {
                             if (appLockEnabled && isUnlocked && backgroundTimestamp > 0) {
@@ -221,5 +235,39 @@ class MainActivity : FragmentActivity() {
         } else {
             true
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        if (intent == null) return
+
+        // Handle direct nostrconnect:// URI (from deep link)
+        val uri = intent.data
+        if (uri?.scheme == "nostrconnect") {
+            DeepLinkRepository.setPendingUri(uri.toString())
+            return
+        }
+
+        // Handle shared text containing nostrconnect:// URI
+        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+            val extracted = extractNostrConnectUri(sharedText)
+            if (extracted != null) {
+                DeepLinkRepository.setPendingUri(extracted)
+            }
+        }
+    }
+
+    /**
+     * Extract a nostrconnect:// URI from text that may contain other content.
+     */
+    private fun extractNostrConnectUri(text: String): String? {
+        // Look for nostrconnect:// URI in the text
+        val regex = Regex("""nostrconnect://[^\s]+""")
+        return regex.find(text)?.value
     }
 }

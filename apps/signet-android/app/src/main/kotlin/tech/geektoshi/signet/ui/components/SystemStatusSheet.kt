@@ -1,3 +1,5 @@
+@file:Suppress("RedundantAssignment")
+
 package tech.geektoshi.signet.ui.components
 
 import android.widget.Toast
@@ -16,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -60,6 +61,7 @@ import tech.geektoshi.signet.ui.theme.BorderDefault
 import tech.geektoshi.signet.ui.theme.Danger
 import tech.geektoshi.signet.ui.theme.SignetPurple
 import tech.geektoshi.signet.ui.theme.Success
+import tech.geektoshi.signet.ui.theme.Teal
 import tech.geektoshi.signet.ui.theme.TextMuted
 import tech.geektoshi.signet.ui.theme.TextPrimary
 import tech.geektoshi.signet.ui.theme.TextSecondary
@@ -85,7 +87,7 @@ fun SystemStatusSheet(
     uiStatus: UIHealthStatus,
     deadManSwitchStatus: DeadManSwitchStatus? = null,
     keys: List<KeyInfo> = emptyList(),
-    onLockNow: (suspend (keyName: String, passphrase: String) -> Result<Unit>)? = null,
+    onReset: (suspend (keyName: String, passphrase: String) -> Result<Unit>)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -93,38 +95,38 @@ fun SystemStatusSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var relaysExpanded by remember { mutableStateOf(false) }
 
-    // Lock Now dialog state
-    var showLockDialog by remember { mutableStateOf(false) }
-    var lockPassphrase by remember { mutableStateOf("") }
-    var lockError by remember { mutableStateOf<String?>(null) }
-    var isLocking by remember { mutableStateOf(false) }
+    // Reset dialog state
+    var showResetDialog by remember { mutableStateOf(false) }
+    var resetPassphrase by remember { mutableStateOf("") }
+    var resetError by remember { mutableStateOf<String?>(null) }
+    var isResetting by remember { mutableStateOf(false) }
 
     // Get encrypted keys for passphrase verification
     val encryptedKeys = remember(keys) { keys.filter { it.isEncrypted } }
 
-    // Lock Now confirmation dialog
-    if (showLockDialog && onLockNow != null) {
+    // Reset Inactivity Lock confirmation dialog
+    if (showResetDialog && onReset != null) {
         val firstEncryptedKey = encryptedKeys.firstOrNull()
 
         AlertDialog(
             onDismissRequest = {
-                if (!isLocking) {
-                    showLockDialog = false
-                    lockPassphrase = ""
-                    lockError = null
+                if (!isResetting) {
+                    showResetDialog = false
+                    resetPassphrase = ""
+                    resetError = null
                 }
             },
             title = {
                 Text(
-                    text = "Lock All Keys Now",
+                    text = "Reset Inactivity Lock",
                     color = TextPrimary
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "This will immediately lock all keys and suspend all apps. You will need to enter your passphrase to recover.",
-                        color = Warning,
+                        text = "Enter your key passphrase to reset the timer.",
+                        color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium
                     )
 
@@ -137,18 +139,18 @@ fun SystemStatusSheet(
                     }
 
                     OutlinedTextField(
-                        value = lockPassphrase,
+                        value = resetPassphrase,
                         onValueChange = {
-                            lockPassphrase = it
-                            lockError = null
+                            resetPassphrase = it
+                            resetError = null
                         },
                         label = { Text("Passphrase") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        isError = lockError != null,
-                        supportingText = lockError?.let { { Text(it, color = Danger) } },
-                        enabled = !isLocking,
+                        isError = resetError != null,
+                        supportingText = resetError?.let { { Text(it, color = Danger) } },
+                        enabled = !isResetting,
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = SignetPurple,
@@ -167,51 +169,51 @@ fun SystemStatusSheet(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (firstEncryptedKey == null || lockPassphrase.isBlank()) return@Button
+                        if (firstEncryptedKey == null || resetPassphrase.isBlank()) return@Button
 
                         scope.launch {
-                            isLocking = true
-                            lockError = null
+                            isResetting = true
+                            resetError = null
 
-                            val result = onLockNow(firstEncryptedKey.name, lockPassphrase)
+                            val result = onReset(firstEncryptedKey.name, resetPassphrase)
 
                             result.fold(
                                 onSuccess = {
-                                    showLockDialog = false
-                                    lockPassphrase = ""
-                                    Toast.makeText(context, "All keys locked", Toast.LENGTH_SHORT).show()
+                                    showResetDialog = false
+                                    resetPassphrase = ""
+                                    Toast.makeText(context, "Timer reset", Toast.LENGTH_SHORT).show()
                                     onDismiss()
                                 },
                                 onFailure = { e ->
-                                    lockError = e.message ?: "Failed to lock keys"
+                                    resetError = e.message ?: "Failed to reset timer"
                                 }
                             )
 
-                            isLocking = false
+                            isResetting = false
                         }
                     },
-                    enabled = !isLocking && lockPassphrase.isNotBlank() && firstEncryptedKey != null,
-                    colors = ButtonDefaults.buttonColors(containerColor = Danger)
+                    enabled = !isResetting && resetPassphrase.isNotBlank() && firstEncryptedKey != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = SignetPurple)
                 ) {
-                    if (isLocking) {
+                    if (isResetting) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
                             color = TextPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("Lock Now")
+                        Text("Reset Timer")
                     }
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
-                        showLockDialog = false
-                        lockPassphrase = ""
-                        lockError = null
+                        showResetDialog = false
+                        resetPassphrase = ""
+                        resetError = null
                     },
-                    enabled = !isLocking
+                    enabled = !isResetting
                 ) {
                     Text("Cancel", color = TextMuted)
                 }
@@ -356,19 +358,23 @@ fun SystemStatusSheet(
                                         color = TextMuted
                                     )
                                 }
-                                Icon(
-                                    imageVector = if (relay.connected) Icons.Default.CheckCircle else Icons.Default.Error,
-                                    contentDescription = if (relay.connected) "Connected" else "Disconnected",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = if (relay.connected) Success else Danger
-                                )
+                                if (relay.connected) {
+                                    TrustScoreBadge(score = relay.trustScore)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Error,
+                                        contentDescription = "Disconnected",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = Danger
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
                 // Inactivity Lock Section (only show when enabled and callback available)
-                if (deadManSwitchStatus?.enabled == true && onLockNow != null && encryptedKeys.isNotEmpty()) {
+                if (deadManSwitchStatus?.enabled == true && onReset != null && encryptedKeys.isNotEmpty()) {
                     val isPanicked = deadManSwitchStatus.panicTriggeredAt != null
 
                     HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
@@ -413,9 +419,9 @@ fun SystemStatusSheet(
 
                             if (!isPanicked) {
                                 TextButton(
-                                    onClick = { showLockDialog = true }
+                                    onClick = { showResetDialog = true }
                                 ) {
-                                    Text("Lock Now", color = Danger)
+                                    Text("Reset", color = SignetPurple)
                                 }
                             }
                         }
@@ -482,6 +488,32 @@ private fun StatItem(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             color = TextPrimary
+        )
+    }
+}
+
+/**
+ * Trust score badge with color based on score thresholds
+ */
+@Composable
+private fun TrustScoreBadge(score: Int?) {
+    val (text, color) = when {
+        score == null -> "?" to TextMuted
+        score >= 80 -> score.toString() to Success
+        score >= 60 -> score.toString() to Teal
+        score >= 40 -> score.toString() to Warning
+        else -> score.toString() to Danger
+    }
+
+    Surface(
+        color = color.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = color
         )
     }
 }

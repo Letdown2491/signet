@@ -31,6 +31,9 @@ import {
   Eye,
   Terminal,
   Link,
+  Download,
+  KeyRound,
+  Timer,
   type LucideProps,
 } from 'lucide-react';
 import type { AdminEventType } from '@signet/types';
@@ -126,6 +129,14 @@ export function getAdminEventIcon(eventType: AdminEventType): React.ComponentTyp
       return Lock;
     case 'key_unlocked':
       return Unlock;
+    case 'key_encrypted':
+      return Lock;
+    case 'key_migrated':
+      return KeyRound;
+    case 'key_exported':
+      return Download;
+    case 'auth_failed':
+      return AlertCircle;
     case 'app_connected':
       return Link;
     case 'app_suspended':
@@ -138,6 +149,10 @@ export function getAdminEventIcon(eventType: AdminEventType): React.ComponentTyp
       return Eye;
     case 'command_executed':
       return Terminal;
+    case 'panic_triggered':
+      return AlertCircle;
+    case 'deadman_reset':
+      return Timer;
     default:
       return FileText;
   }
@@ -150,6 +165,14 @@ export function getAdminEventLabel(eventType: AdminEventType): string {
       return 'Key locked';
     case 'key_unlocked':
       return 'Key unlocked';
+    case 'key_encrypted':
+      return 'Key encrypted';
+    case 'key_migrated':
+      return 'Encryption migrated';
+    case 'key_exported':
+      return 'Key exported';
+    case 'auth_failed':
+      return 'Auth failed';
     case 'app_connected':
       return 'App connected';
     case 'app_suspended':
@@ -162,6 +185,10 @@ export function getAdminEventLabel(eventType: AdminEventType): string {
       return 'Status checked';
     case 'command_executed':
       return 'Command executed';
+    case 'panic_triggered':
+      return 'Panic triggered';
+    case 'deadman_reset':
+      return 'Inactivity timer reset';
     default:
       return eventType;
   }

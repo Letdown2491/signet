@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools/pure';
 import type { RelayPool } from '../lib/relay-pool.js';
+import { logger } from '../lib/logger.js';
 
 /**
  * Logs NIP-46 response publishing for debugging.
@@ -41,7 +42,7 @@ export class PublishLogger {
             (event: Event, relay: string, error: Error) => this.onPublishFailure(event, relay, error)
         );
 
-        console.log('Publish logging enabled');
+        logger.info('Publish logging enabled');
     }
 
     /**
@@ -54,7 +55,7 @@ export class PublishLogger {
 
         this.enabled = false;
         this.pool.setPublishCallbacks(undefined, undefined);
-        console.log('Publish logging disabled');
+        logger.info('Publish logging disabled');
     }
 
     /**
@@ -94,7 +95,7 @@ export class PublishLogger {
             this.stats.byRelay.set(relay, { published: 1, failed: 0 });
         }
 
-        console.log(`Published kind ${event.kind} to ${relay} (id: ${event.id?.slice(0, 8)}...)`);
+        logger.debug('Published event', { kind: event.kind, relay, eventId: event.id?.slice(0, 8) });
     }
 
     private onPublishFailure(event: Event, relay: string, error: Error): void {
@@ -108,20 +109,21 @@ export class PublishLogger {
             this.stats.byRelay.set(relay, { published: 0, failed: 1 });
         }
 
-        console.log(`FAILED kind ${event.kind} to ${relay}: ${error.message} (id: ${event.id?.slice(0, 8)}...)`);
+        logger.warn('Failed to publish event', { kind: event.kind, relay, error: error.message, eventId: event.id?.slice(0, 8) });
     }
 
     /**
      * Print a summary of publish stats
      */
     public printSummary(): void {
-        console.log('\nPublish Statistics:');
-        console.log(`   Total published: ${this.stats.totalPublished}`);
-        console.log(`   Total failed: ${this.stats.totalFailed}`);
-        console.log('   By relay:');
+        const byRelay: Record<string, { published: number; failed: number }> = {};
         for (const [url, stat] of this.stats.byRelay) {
-            console.log(`     ${url}: ${stat.published} published, ${stat.failed} failed`);
+            byRelay[url] = stat;
         }
-        console.log('');
+        logger.info('Publish statistics', {
+            totalPublished: this.stats.totalPublished,
+            totalFailed: this.stats.totalFailed,
+            byRelay,
+        });
     }
 }

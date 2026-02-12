@@ -1,6 +1,7 @@
 import os from 'os';
 import fs from 'fs';
 import QRCode from 'qrcode';
+import { logger } from './logger.js';
 
 /**
  * Interface patterns to filter out (virtual/container interfaces)
@@ -105,23 +106,23 @@ export function getLocalAddresses(): LocalAddress[] {
  * Print server startup information including local URLs and optionally a QR code.
  */
 export async function printServerInfo(port: number): Promise<void> {
-    console.log(`HTTP server listening on port ${port}`);
+    logger.info('HTTP server listening', { port });
 
     // In containers, the container's IP isn't useful for external connections
     if (isRunningInContainer()) {
-        console.log(`  → http://localhost:${port} (container)`);
-        console.log('  To connect from Android, use your host machine\'s IP address');
+        logger.info('Running in container', { url: `http://localhost:${port}` });
         return;
     }
 
     const addresses = getLocalAddresses();
 
     if (addresses.length === 0) {
-        console.log(`  → http://localhost:${port}`);
+        logger.info('Local address', { url: `http://localhost:${port}` });
         return;
     }
 
     // Print all addresses with labels and QR codes
+    // Using console.log here since QR codes are visual and need raw output
     console.log('\nScan to connect from Android:\n');
 
     for (const addr of addresses) {

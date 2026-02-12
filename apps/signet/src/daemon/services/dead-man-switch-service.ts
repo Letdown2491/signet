@@ -1,4 +1,6 @@
 import createDebug from 'debug';
+import { toErrorMessage } from '../lib/errors.js';
+import { logger } from '../lib/logger.js';
 import { settingsRepository } from '../repositories/index.js';
 import { adminLogRepository, type AdminEventType } from '../repositories/admin-log-repository.js';
 import { getEventService, emitCurrentStats, type DeadManSwitchStatus } from './event-service.js';
@@ -61,6 +63,10 @@ export class DeadManSwitchService {
 
     private checkTimer?: NodeJS.Timeout;
     private isRunning = false;
+    // Rate limiting for passphrase attempts
+    // Note: Using Map instead of TTLCache because the rate limit window must be
+    // measured from firstAttemptAt (first attempt), not refreshed on each attempt.
+    // This is security-sensitive - TTLCache would allow indefinite attempts if spaced out.
     private rateLimitMap = new Map<string, RateLimitEntry>();
 
     constructor(config: DeadManSwitchServiceConfig) {
@@ -85,15 +91,15 @@ export class DeadManSwitchService {
         // Check if enabled
         const enabled = await this.isEnabled();
         if (enabled) {
-            console.log('[DeadManSwitch] Timer active, checking every minute');
+            logger.info('Dead man switch timer active');
         } else {
-            console.log('[DeadManSwitch] Disabled, monitoring for enable');
+            logger.info('Dead man switch disabled, monitoring for enable');
         }
 
         // Start the check loop
         this.checkTimer = setInterval(() => {
             this.runCheck().catch(err => {
-                console.error('[DeadManSwitch] Check error:', err);
+                logger.error('Dead man switch check error', { error: toErrorMessage(err) });
             });
         }, CHECK_INTERVAL_MS);
 
@@ -177,7 +183,7 @@ export class DeadManSwitchService {
             settingsRepository.set(SETTING_WARNINGS_SENT, '[]'),
         ]);
 
-        console.log(`[DeadManSwitch] Enabled with ${Math.floor(timeframe / 3600)}h timeframe`);
+        logger.info('Dead man switch enabled', { timeframeHours: Math.floor(timeframe / 3600) });
 
         // Emit status update
         const status = await this.getStatus();
@@ -199,7 +205,7 @@ export class DeadManSwitchService {
             settingsRepository.set(SETTING_WARNINGS_SENT, '[]'),
         ]);
 
-        console.log('[DeadManSwitch] Disabled');
+        logger.info('Dead man switch disabled');
 
         // Emit status update
         const status = await this.getStatus();
@@ -223,7 +229,7 @@ export class DeadManSwitchService {
             settingsRepository.set(SETTING_WARNINGS_SENT, '[]'),
         ]);
 
-        console.log(`[DeadManSwitch] Timeframe updated to ${Math.floor(timeframeSec / 3600)}h, timer reset`);
+        logger.info('Dead man switch timeframe updated', { timeframeHours: Math.floor(timeframeSec / 3600) });
 
         // Emit status update
         const status = await this.getStatus();
@@ -260,7 +266,7 @@ export class DeadManSwitchService {
             settingsRepository.set(SETTING_WARNINGS_SENT, '[]'),
         ]);
 
-        console.log(`[DeadManSwitch] Timer reset (source: ${source})`);
+        logger.info('Dead man switch timer reset', { source });
 
         const status = await this.getStatus();
         getEventService().emitDeadmanReset(status);
@@ -276,7 +282,7 @@ export class DeadManSwitchService {
         // Verify passphrase
         this.verifyPassphrase(keyName, passphrase);
 
-        console.log('[DeadManSwitch] Test panic triggered');
+        logger.warn('Dead man switch test panic triggered');
         await this.triggerPanic();
     }
 
@@ -317,7 +323,7 @@ export class DeadManSwitchService {
 
         // Check if timer expired
         if (status.remainingSec !== null && status.remainingSec <= 0) {
-            console.log('[DeadManSwitch] Timer expired, triggering panic');
+            logger.warn('Dead man switch timer expired, triggering panic');
             await this.triggerPanic();
             return;
         }
@@ -356,9 +362,9 @@ export class DeadManSwitchService {
                     await this.sendWarningDm!(message);
                     warningsSent.push(thresholdKey);
                     await settingsRepository.set(SETTING_WARNINGS_SENT, JSON.stringify(warningsSent));
-                    console.log(`[DeadManSwitch] Sent ${thresholdKey} warning`);
+                    logger.info('Dead man switch warning sent', { threshold: thresholdKey });
                 } catch (error) {
-                    console.error(`[DeadManSwitch] Failed to send warning: ${(error as Error).message}`);
+                    logger.error('Failed to send dead man switch warning', { error: toErrorMessage(error) });
                 }
 
                 // Only send one warning per check
@@ -399,7 +405,7 @@ export class DeadManSwitchService {
                     `Visit your Signet dashboard to recover.`
                 );
             } catch (error) {
-                console.error('[DeadManSwitch] Failed to send panic notification:', error);
+                logger.error('Failed to send panic notification', { error: toErrorMessage(error) });
             }
         }
 
@@ -410,7 +416,7 @@ export class DeadManSwitchService {
         // 7. Emit stats update
         await emitCurrentStats();
 
-        console.log(`[DeadManSwitch] PANIC: Locked ${lockedKeys.length} keys, suspended ${suspendedApps} apps`);
+        logger.warn('Dead man switch PANIC executed', { lockedKeys: lockedKeys.length, suspendedApps });
     }
 
     /**
@@ -435,7 +441,7 @@ export class DeadManSwitchService {
             // Passphrase is correct - reset rate limit counter
             this.rateLimitMap.delete(identifier);
         } catch (error) {
-            const message = (error as Error).message;
+            const message = toErrorMessage(error);
 
             // Don't count "Key not found" or "Key is not encrypted" as failed attempts
             if (message.includes('Key not found') || message.includes('Key is not encrypted')) {

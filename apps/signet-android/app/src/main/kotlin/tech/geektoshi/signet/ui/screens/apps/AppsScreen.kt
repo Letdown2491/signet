@@ -1,5 +1,6 @@
 package tech.geektoshi.signet.ui.screens.apps
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,13 +10,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Card
@@ -31,12 +37,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import tech.geektoshi.signet.data.api.ServerEvent
 import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.model.ConnectedApp
@@ -48,6 +56,7 @@ import tech.geektoshi.signet.ui.components.ConnectAppSheet
 import tech.geektoshi.signet.ui.components.EmptyState
 import tech.geektoshi.signet.ui.components.QRScannerSheet
 import tech.geektoshi.signet.ui.components.SkeletonAppCard
+import tech.geektoshi.signet.ui.components.SuspendAllAppsSheet
 import tech.geektoshi.signet.ui.components.pressScale
 import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.Danger
@@ -64,6 +73,7 @@ fun AppsScreen() {
     val context = LocalContext.current
     val settingsRepository = remember { SettingsRepository(context) }
     val daemonUrl by settingsRepository.daemonUrl.collectAsState(initial = "")
+    val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -73,9 +83,16 @@ fun AppsScreen() {
     var selectedApp by remember { mutableStateOf<ConnectedApp?>(null) }
     var showConnectSheet by remember { mutableStateOf(false) }
     var showQRScanner by remember { mutableStateOf(false) }
+    var showSuspendAllSheet by remember { mutableStateOf(false) }
+    var isResumingAll by remember { mutableStateOf(false) }
     var scannedUri by remember { mutableStateOf("") }
     var refreshCounter by remember { mutableIntStateOf(0) }
     val eventBus = remember { EventBusRepository.getInstance() }
+
+    // Calculate app states for the toggle button
+    val activeAppsCount = apps.count { it.suspendedAt == null }
+    val suspendedAppsCount = apps.count { it.suspendedAt != null }
+    val allSuspended = apps.isNotEmpty() && activeAppsCount == 0
 
     // Connect to SSE when daemon URL is available
     LaunchedEffect(daemonUrl) {
@@ -183,6 +200,23 @@ fun AppsScreen() {
         )
     }
 
+    // Suspend All Apps Sheet
+    if (showSuspendAllSheet) {
+        SuspendAllAppsSheet(
+            appCount = activeAppsCount,
+            daemonUrl = daemonUrl,
+            onDismiss = { showSuspendAllSheet = false },
+            onSuccess = { suspendedCount ->
+                Toast.makeText(
+                    context,
+                    "Suspended $suspendedCount app${if (suspendedCount != 1) "s" else ""}",
+                    Toast.LENGTH_SHORT
+                ).show()
+                refreshCounter++
+            }
+        )
+    }
+
     if (isLoading) {
         Column(
             modifier = Modifier
@@ -216,7 +250,7 @@ fun AppsScreen() {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = error!!,
+                    text = error ?: "Unknown error",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextMuted
                 )
@@ -249,14 +283,76 @@ fun AppsScreen() {
                         style = MaterialTheme.typography.headlineMedium,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    IconButton(
-                        onClick = { showConnectSheet = true }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Connect App",
-                            tint = SignetPurple
-                        )
+                        // Suspend/Resume toggle button
+                        IconButton(
+                            onClick = {
+                                if (allSuspended) {
+                                    // Resume all apps
+                                    scope.launch {
+                                        isResumingAll = true
+                                        try {
+                                            val client = SignetApiClient(daemonUrl)
+                                            val result = client.resumeAllApps()
+                                            client.close()
+                                            if (result.ok) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Resumed ${result.resumedCount} app${if (result.resumedCount != 1) "s" else ""}",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                                refreshCounter++
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    result.error ?: "Failed to resume apps",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(
+                                                context,
+                                                e.message ?: "Failed to resume apps",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } finally {
+                                            isResumingAll = false
+                                        }
+                                    }
+                                } else {
+                                    // Show suspend sheet
+                                    showSuspendAllSheet = true
+                                }
+                            },
+                            enabled = apps.isNotEmpty() && !isResumingAll
+                        ) {
+                            if (isResumingAll) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = SignetPurple
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (allSuspended) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                    contentDescription = if (allSuspended) "Resume All Apps" else "Suspend All Apps",
+                                    tint = if (apps.isNotEmpty()) SignetPurple else TextMuted
+                                )
+                            }
+                        }
+                        // Connect App button
+                        IconButton(
+                            onClick = { showConnectSheet = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Connect App",
+                                tint = SignetPurple
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -271,7 +367,7 @@ fun AppsScreen() {
                     )
                 }
             } else {
-                items(apps) { app ->
+                items(apps, key = { it.id }) { app ->
                     AppCard(
                         app = app,
                         onClick = { selectedApp = app; Unit }
@@ -299,17 +395,32 @@ private fun AppCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Header: App name + Trust level
+            // Header: Status dot + App name + Trust level
+            val isSuspended = app.suspendedAt != null
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = app.description ?: (app.userPubkey.take(12) + "..."),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Status dot: green = active, gray = suspended
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(
+                                color = if (isSuspended) TextMuted else Success,
+                                shape = CircleShape
+                            )
+                    )
+                    Text(
+                        text = app.description ?: (app.userPubkey.take(12) + "..."),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (isSuspended) TextMuted else TextPrimary
+                    )
+                }
                 TrustLevelBadge(trustLevel = app.trustLevel)
             }
 

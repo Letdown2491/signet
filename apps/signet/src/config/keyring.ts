@@ -1,5 +1,8 @@
 import crypto from 'crypto';
 
+// Re-export NIP-49 functions for convenience
+export { encryptNip49, decryptNip49, isNcryptsec } from '../daemon/lib/nip49.js';
+
 // Current encryption settings (v2)
 const ALGORITHM_GCM = 'aes-256-gcm';
 const KEY_LENGTH = 32;

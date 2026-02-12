@@ -6,10 +6,46 @@ import { SettingsProvider } from '../../contexts/SettingsContext';
 import { createMockRequest } from '../../testing/mocks';
 
 // Mock the api-client module
-vi.mock('../../lib/api-client.js', () => ({
-  apiGet: vi.fn(),
-  apiPost: vi.fn(),
-}));
+// Note: vi.mock is hoisted, so class definitions must be inline
+vi.mock('../../lib/api-client.js', () => {
+  // Define mock error types inside factory
+  class MockApiError extends Error {
+    public readonly status: number;
+    public readonly statusText: string;
+    public readonly body?: string;
+    constructor(
+      message: string,
+      status: number = 0,
+      statusText: string = '',
+      body?: string
+    ) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+      this.statusText = statusText;
+      this.body = body;
+    }
+    get isCsrfError(): boolean {
+      return this.status === 403 && (this.body?.toLowerCase().includes('csrf') ?? false);
+    }
+  }
+
+  class MockTimeoutError extends Error {
+    public readonly timeoutMs: number;
+    constructor(message: string, timeoutMs: number = 0) {
+      super(message);
+      this.name = 'TimeoutError';
+      this.timeoutMs = timeoutMs;
+    }
+  }
+
+  return {
+    apiGet: vi.fn(),
+    apiPost: vi.fn(),
+    ApiError: MockApiError,
+    TimeoutError: MockTimeoutError,
+  };
+});
 
 // Mock the ServerEventsContext to avoid SSE setup in tests
 vi.mock('../../contexts/ServerEventsContext.js', () => ({
@@ -36,7 +72,7 @@ describe('useRequests', () => {
   });
 
   describe('initial load', () => {
-    it('should fetch pending requests on mount', async () => {
+    it('should fetch requests on mount with default filter', async () => {
       const mockRequests = [
         createMockRequest({ id: 'req-1' }),
         createMockRequest({ id: 'req-2' }),
@@ -50,7 +86,8 @@ describe('useRequests', () => {
       });
 
       expect(result.current.requests).toHaveLength(2);
-      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('status=pending'));
+      // Default filter is 'all'
+      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('status=all'));
     });
 
     it('should handle fetch errors', async () => {

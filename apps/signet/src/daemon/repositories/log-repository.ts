@@ -1,5 +1,6 @@
 import prisma from '../../db.js';
 import type { ApprovalType } from '../lib/acl.js';
+import { extractEventKind } from '../lib/parse.js';
 
 export interface LogEntry {
     id: number;
@@ -100,19 +101,9 @@ export class LogRepository {
 
     toActivityEntry(log: LogEntry): ActivityEntry {
         // Extract event kind from params for sign_event
-        let eventKind: number | undefined;
-        if (log.method === 'sign_event' && log.params) {
-            try {
-                const parsed = JSON.parse(log.params);
-                // params could be [event] array or just event object
-                const event = Array.isArray(parsed) ? parsed[0] : parsed;
-                if (typeof event?.kind === 'number') {
-                    eventKind = event.kind;
-                }
-            } catch {
-                // Ignore parse errors
-            }
-        }
+        const eventKind = log.method === 'sign_event'
+            ? extractEventKind(log.params)
+            : undefined;
 
         return {
             id: log.id,
@@ -130,21 +121,3 @@ export class LogRepository {
 }
 
 export const logRepository = new LogRepository();
-
-/**
- * Extract event kind from params string (for sign_event method)
- */
-export function extractEventKind(params: string | null): number | undefined {
-    if (!params) return undefined;
-    try {
-        const parsed = JSON.parse(params);
-        // params could be [event] array or just event object
-        const event = Array.isArray(parsed) ? parsed[0] : parsed;
-        if (typeof event?.kind === 'number') {
-            return event.kind;
-        }
-    } catch {
-        // Ignore parse errors
-    }
-    return undefined;
-}

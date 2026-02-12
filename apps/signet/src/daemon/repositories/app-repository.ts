@@ -245,10 +245,11 @@ export class AppRepository {
 
     /**
      * Suspend all active (non-revoked, non-suspended) apps.
-     * Used by the kill switch.
+     * Used by the kill switch and bulk suspend.
+     * @param until - Optional date when suspension should automatically end
      * Returns the count of apps that were suspended.
      */
-    async suspendAll(): Promise<number> {
+    async suspendAll(until?: Date): Promise<number> {
         const result = await prisma.keyUser.updateMany({
             where: {
                 revokedAt: null,
@@ -256,9 +257,31 @@ export class AppRepository {
             },
             data: {
                 suspendedAt: new Date(),
+                suspendUntil: until ?? null,
             },
         });
         // Clear entire ACL cache since we suspended many apps
+        clearAclCache();
+        return result.count;
+    }
+
+    /**
+     * Unsuspend all suspended apps.
+     * Used by bulk resume.
+     * Returns the count of apps that were unsuspended.
+     */
+    async unsuspendAll(): Promise<number> {
+        const result = await prisma.keyUser.updateMany({
+            where: {
+                revokedAt: null,
+                suspendedAt: { not: null },
+            },
+            data: {
+                suspendedAt: null,
+                suspendUntil: null,
+            },
+        });
+        // Clear entire ACL cache since we unsuspended many apps
         clearAclCache();
         return result.count;
     }

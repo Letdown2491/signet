@@ -3,6 +3,8 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { encrypt as nip44Encrypt, getConversationKey } from 'nostr-tools/nip44';
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19';
 import createDebug from 'debug';
+import { toErrorMessage } from '../lib/errors.js';
+import { logger } from '../lib/logger.js';
 import type { KeyService } from './key-service.js';
 
 const debug = createDebug('signet:nostrconnect');
@@ -131,7 +133,7 @@ export class NostrconnectService {
 
             try {
                 debug('sending connect response to %s on %d relays', npubEncode(clientPubkey), clientRelays.length);
-                console.log(`[nostrconnect] Sending connect response to ${npubEncode(clientPubkey)} on ${clientRelays.join(', ')}`);
+                logger.info('Sending nostrconnect response', { to: npubEncode(clientPubkey), relays: clientRelays });
 
                 // Publish to client's relays
                 const results = await Promise.allSettled(
@@ -151,15 +153,15 @@ export class NostrconnectService {
                     return { success: false, error: `Failed to publish to any relay: ${errors}` };
                 }
 
-                console.log(`[nostrconnect] Connect response sent successfully to ${successes}/${clientRelays.length} relays`);
+                logger.info('Nostrconnect response sent', { successes, total: clientRelays.length });
                 return { success: true };
             } finally {
                 // Clean up temporary pool
                 tempPool.close(clientRelays);
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`[nostrconnect] Failed to send connect response: ${message}`);
+            const message = toErrorMessage(error);
+            logger.error('Failed to send nostrconnect response', { error: message });
             return { success: false, error: message };
         }
     }
@@ -181,7 +183,7 @@ export class NostrconnectService {
     ): void {
         if (!this.onAppConnected) {
             debug('no onAppConnected callback set, skipping subscription');
-            console.log('[nostrconnect] Warning: Per-app relay subscriptions not configured');
+            logger.warn('Per-app relay subscriptions not configured');
             return;
         }
 

@@ -230,6 +230,7 @@ export const METHOD_LABELS: Record<string, string> = {
   nip44_encrypt: 'Send encrypted message',
   nip44_decrypt: 'Read encrypted message',
   ping: 'Ping',
+  switch_relays: 'Switch relays',
 };
 
 /**
@@ -344,6 +345,8 @@ export function getMethodLabelPastTense(method: string, kind?: number): string {
       return 'Read encrypted message';
     case 'ping':
       return 'Pinged';
+    case 'switch_relays':
+      return 'Switched relays';
     default:
       return method;
   }

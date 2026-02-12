@@ -2,6 +2,14 @@ import { SimplePool } from 'nostr-tools/pool';
 import { type Event } from 'nostr-tools/pure';
 import { type Filter } from 'nostr-tools/filter';
 import createDebug from 'debug';
+import { toErrorMessage } from './errors.js';
+import { logger } from './logger.js';
+import {
+    RELAY_WATCHDOG_FAILURE_THRESHOLD,
+    RELAY_WATCHDOG_RESET_COOLDOWN_MS,
+    RELAY_HEARTBEAT_INTERVAL_MS,
+    RELAY_SLEEP_DETECTION_THRESHOLD_MS,
+} from '../constants.js';
 
 const debug = createDebug('signet:relay-pool');
 
@@ -20,16 +28,13 @@ interface ActiveSubscription {
     close: () => void;
 }
 
-// Track consecutive health check failures for watchdog
-const WATCHDOG_FAILURE_THRESHOLD = 3;
-const WATCHDOG_RESET_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between resets
+export type RelayPoolEvent =
+    | { type: 'pool-reset' }
+    | { type: 'status-change' }
+    | { type: 'sleep-detected'; data: { sleepDuration: number } };
 
-// Sleep/wake detection
-const HEARTBEAT_INTERVAL_MS = 30 * 1000; // 30 seconds
-const SLEEP_DETECTION_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 3; // 90 seconds = likely slept
-
-export type RelayPoolEventType = 'pool-reset' | 'status-change' | 'sleep-detected';
-export type RelayPoolListener = (event: { type: RelayPoolEventType; data?: any }) => void;
+export type RelayPoolEventType = RelayPoolEvent['type'];
+export type RelayPoolListener = (event: RelayPoolEvent) => void;
 
 /**
  * Thin wrapper around nostr-tools SimplePool.
@@ -89,9 +94,9 @@ export class RelayPool {
 
         this.heartbeatTimer = setInterval(() => {
             this.runHeartbeat();
-        }, HEARTBEAT_INTERVAL_MS);
+        }, RELAY_HEARTBEAT_INTERVAL_MS);
 
-        debug('sleep/wake monitoring started with %dms heartbeat', HEARTBEAT_INTERVAL_MS);
+        debug('sleep/wake monitoring started with %dms heartbeat', RELAY_HEARTBEAT_INTERVAL_MS);
     }
 
     /**
@@ -122,12 +127,12 @@ export class RelayPool {
     /**
      * Emit an event to all listeners.
      */
-    private emit(event: { type: RelayPoolEventType; data?: any }): void {
+    private emit(event: RelayPoolEvent): void {
         for (const listener of this.listeners) {
             try {
                 listener(event);
             } catch (error) {
-                debug('listener error: %s', (error as Error).message);
+                debug('listener error: %s', toErrorMessage(error));
             }
         }
     }
@@ -140,12 +145,12 @@ export class RelayPool {
         const elapsed = now - this.lastHeartbeat;
         this.lastHeartbeat = now;
 
-        debug('heartbeat: %dms elapsed (expected ~%dms)', elapsed, HEARTBEAT_INTERVAL_MS);
+        debug('heartbeat: %dms elapsed (expected ~%dms)', elapsed, RELAY_HEARTBEAT_INTERVAL_MS);
 
         // Check for time jump (sleep/wake detection)
-        if (elapsed > SLEEP_DETECTION_THRESHOLD_MS) {
-            const sleepDuration = Math.round((elapsed - HEARTBEAT_INTERVAL_MS) / 1000);
-            console.log(`System wake detected (slept ~${sleepDuration}s), resetting relay pool`);
+        if (elapsed > RELAY_SLEEP_DETECTION_THRESHOLD_MS) {
+            const sleepDuration = Math.round((elapsed - RELAY_HEARTBEAT_INTERVAL_MS) / 1000);
+            logger.info('System wake detected, resetting relay pool', { sleepDurationSec: sleepDuration });
             this.emit({ type: 'sleep-detected', data: { sleepDuration } });
 
             // Reset the pool to clear stale connections
@@ -381,14 +386,14 @@ export class RelayPool {
         this.consecutiveFailures++;
         debug('health check failed, consecutive failures: %d', this.consecutiveFailures);
 
-        if (this.consecutiveFailures >= WATCHDOG_FAILURE_THRESHOLD) {
+        if (this.consecutiveFailures >= RELAY_WATCHDOG_FAILURE_THRESHOLD) {
             const now = Date.now();
-            if (now - this.lastReset >= WATCHDOG_RESET_COOLDOWN_MS) {
-                console.log(`=== WATCHDOG: ${this.consecutiveFailures} consecutive health check failures, resetting pool ===`);
+            if (now - this.lastReset >= RELAY_WATCHDOG_RESET_COOLDOWN_MS) {
+                logger.warn('Watchdog triggered pool reset', { consecutiveFailures: this.consecutiveFailures });
                 this.resetPool();
                 return true;
             } else {
-                const cooldownRemaining = Math.round((WATCHDOG_RESET_COOLDOWN_MS - (now - this.lastReset)) / 1000);
+                const cooldownRemaining = Math.round((RELAY_WATCHDOG_RESET_COOLDOWN_MS - (now - this.lastReset)) / 1000);
                 debug('watchdog: in cooldown, %ds remaining', cooldownRemaining);
             }
         }
@@ -401,16 +406,13 @@ export class RelayPool {
      * Emits 'pool-reset' event so listeners can recreate subscriptions.
      */
     public resetPool(): void {
-        console.log('=== POOL RESET ===');
-        console.log(`Time: ${new Date().toISOString()}`);
-        console.log(`Previous consecutive failures: ${this.consecutiveFailures}`);
-        console.log('Closing existing pool and creating fresh instance...');
+        logger.info('Pool reset initiated', { consecutiveFailures: this.consecutiveFailures });
 
         // Close the existing pool
         try {
             this.pool.close(this.relays);
         } catch (error) {
-            console.error('Error closing pool:', error);
+            logger.error('Error closing pool', { error: toErrorMessage(error) });
         }
 
         // Create a fresh pool
@@ -429,8 +431,7 @@ export class RelayPool {
             });
         }
 
-        console.log('Pool reset complete. Subscriptions will be recreated.');
-        console.log('==================');
+        logger.info('Pool reset complete');
 
         // Emit pool-reset event so SubscriptionManager can recreate subscriptions
         this.emit({ type: 'pool-reset' });
@@ -444,7 +445,7 @@ export class RelayPool {
         return {
             consecutiveFailures: this.consecutiveFailures,
             lastReset: this.lastReset > 0 ? new Date(this.lastReset) : null,
-            threshold: WATCHDOG_FAILURE_THRESHOLD,
+            threshold: RELAY_WATCHDOG_FAILURE_THRESHOLD,
         };
     }
 
