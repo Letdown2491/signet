@@ -1,12 +1,46 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { config as dotenvConfig } from 'dotenv';
+
+// Load .env from repository root (two levels up)
+dotenvConfig({ path: resolve(__dirname, '../../.env') });
 
 const packageJson = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
+function basicAuthPlugin(): Plugin {
+  return {
+    name: 'basic-auth',
+    configureServer(server) {
+      const username = process.env.UI_AUTH_USERNAME;
+      const password = process.env.UI_AUTH_PASSWORD;
+      if (!username || !password) return;
+
+      console.log('Basic Auth enabled for dev server');
+
+      server.middlewares.use((req, res, next) => {
+        const header = req.headers.authorization;
+        if (header) {
+          const match = header.match(/^Basic\s+(.+)$/);
+          if (match) {
+            const [user, pass] = Buffer.from(match[1], 'base64').toString().split(':');
+            if (user === username && pass === password) {
+              return next();
+            }
+          }
+        }
+        res.setHeader('WWW-Authenticate', 'Basic realm="Signet UI"');
+        res.statusCode = 401;
+        res.end('Authentication required');
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [basicAuthPlugin(), react()],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },
