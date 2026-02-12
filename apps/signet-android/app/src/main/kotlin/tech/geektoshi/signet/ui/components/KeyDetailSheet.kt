@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.model.KeyInfo
 import tech.geektoshi.signet.util.ClearSensitiveDataOnDispose
+import tech.geektoshi.signet.ui.theme.BgPrimary
+import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.BgTertiary
 import tech.geektoshi.signet.ui.theme.BorderDefault
 import tech.geektoshi.signet.ui.theme.Danger
@@ -83,8 +88,44 @@ fun KeyDetailSheet(
     var passphrase by passphraseState
     var showBunkerURISheet by remember { mutableStateOf(false) }
 
+    // Encrypt form state
+    var showEncryptForm by remember { mutableStateOf(false) }
+    var encryptFormat by remember { mutableStateOf("nip49") }
+    val encryptPassphraseState = remember { mutableStateOf("") }
+    var encryptPassphrase by encryptPassphraseState
+    val confirmEncryptPassphraseState = remember { mutableStateOf("") }
+    var confirmEncryptPassphrase by confirmEncryptPassphraseState
+    var isEncrypting by remember { mutableStateOf(false) }
+
+    // Migrate form state
+    var showMigrateForm by remember { mutableStateOf(false) }
+    val migratePassphraseState = remember { mutableStateOf("") }
+    var migratePassphrase by migratePassphraseState
+    var isMigrating by remember { mutableStateOf(false) }
+
+    // Export form state
+    var showExportForm by remember { mutableStateOf(false) }
+    var exportFormat by remember { mutableStateOf("nsec") }
+    val currentPassphraseState = remember { mutableStateOf("") }
+    var currentPassphrase by currentPassphraseState
+    val exportPassphraseState = remember { mutableStateOf("") }
+    var exportPassphrase by exportPassphraseState
+    val confirmExportPassphraseState = remember { mutableStateOf("") }
+    var confirmExportPassphrase by confirmExportPassphraseState
+    var isExporting by remember { mutableStateOf(false) }
+    var exportedKey by remember { mutableStateOf<String?>(null) }
+    var exportedFormat by remember { mutableStateOf<String?>(null) }
+
     // Clear sensitive data when sheet is dismissed
-    ClearSensitiveDataOnDispose(passphraseState)
+    ClearSensitiveDataOnDispose(
+        passphraseState,
+        encryptPassphraseState,
+        confirmEncryptPassphraseState,
+        migratePassphraseState,
+        currentPassphraseState,
+        exportPassphraseState,
+        confirmExportPassphraseState
+    )
 
     val isLocked = key.status.lowercase() == "locked"
     val isOnline = key.status.lowercase() == "online"
@@ -140,7 +181,7 @@ fun KeyDetailSheet(
                         color = TextPrimary
                     )
                 }
-                EncryptionBadge(isEncrypted = key.isEncrypted)
+                EncryptionBadge(encryptionFormat = key.encryptionFormat)
             }
 
             HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
@@ -188,7 +229,11 @@ fun KeyDetailSheet(
 
             InfoRow(
                 label = "Encryption",
-                value = if (key.isEncrypted) "Password protected" else "Not encrypted"
+                value = when (key.encryptionFormat) {
+                    "nip49" -> "NIP-49 (recommended)"
+                    "legacy" -> "Legacy (AES-256-GCM)"
+                    else -> "Not encrypted"
+                }
             )
 
             // Error message
@@ -343,6 +388,576 @@ fun KeyDetailSheet(
                 }
             }
 
+            // Encrypt section (for unencrypted online keys)
+            if (isOnline && !key.isEncrypted && !showDeleteConfirm && !showUnlock) {
+                HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
+
+                if (showEncryptForm) {
+                    Text(
+                        text = "Encrypt Key",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = "Add password protection to this key",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
+
+                    // Format selection
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = encryptFormat == "nip49",
+                                onCheckedChange = { if (it) encryptFormat = "nip49" },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = SignetPurple,
+                                    uncheckedColor = TextMuted
+                                )
+                            )
+                            Column {
+                                Text("NIP-49", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                                Text("Recommended", style = MaterialTheme.typography.bodySmall, color = SignetPurple)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = encryptFormat == "legacy",
+                                onCheckedChange = { if (it) encryptFormat = "legacy" },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = SignetPurple,
+                                    uncheckedColor = TextMuted
+                                )
+                            )
+                            Text("Legacy", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = encryptPassphrase,
+                        onValueChange = { encryptPassphrase = it },
+                        placeholder = { Text("Enter passphrase") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SignetPurple,
+                            unfocusedBorderColor = BorderDefault,
+                            cursorColor = SignetPurple,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedPlaceholderColor = TextMuted,
+                            unfocusedPlaceholderColor = TextMuted,
+                            focusedContainerColor = BgTertiary,
+                            unfocusedContainerColor = BgTertiary
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = confirmEncryptPassphrase,
+                        onValueChange = { confirmEncryptPassphrase = it },
+                        placeholder = { Text("Confirm passphrase") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        isError = confirmEncryptPassphrase.isNotEmpty() && encryptPassphrase != confirmEncryptPassphrase,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = if (encryptPassphrase == confirmEncryptPassphrase) SignetPurple else Danger,
+                            unfocusedBorderColor = if (confirmEncryptPassphrase.isEmpty() || encryptPassphrase == confirmEncryptPassphrase) BorderDefault else Danger,
+                            cursorColor = SignetPurple,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedPlaceholderColor = TextMuted,
+                            unfocusedPlaceholderColor = TextMuted,
+                            focusedContainerColor = BgTertiary,
+                            unfocusedContainerColor = BgTertiary
+                        )
+                    )
+
+                    if (confirmEncryptPassphrase.isNotEmpty() && encryptPassphrase != confirmEncryptPassphrase) {
+                        Text(
+                            text = "Passphrases do not match",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Danger
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showEncryptForm = false
+                                encryptPassphrase = ""
+                                confirmEncryptPassphrase = ""
+                            },
+                            enabled = !isEncrypting,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancel")
+                        }
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isEncrypting = true
+                                    error = null
+                                    try {
+                                        val client = SignetApiClient(daemonUrl)
+                                        val result = client.encryptKey(
+                                            keyName = key.name,
+                                            encryption = encryptFormat,
+                                            passphrase = encryptPassphrase,
+                                            confirmPassphrase = confirmEncryptPassphrase
+                                        )
+                                        client.close()
+                                        if (result.ok) {
+                                            onActionComplete()
+                                            onDismiss()
+                                        } else {
+                                            error = result.error ?: "Failed to encrypt"
+                                        }
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Failed to encrypt"
+                                    } finally {
+                                        isEncrypting = false
+                                    }
+                                }
+                            },
+                            enabled = !isEncrypting && encryptPassphrase.isNotBlank() && encryptPassphrase == confirmEncryptPassphrase,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SignetPurple,
+                                contentColor = TextPrimary
+                            )
+                        ) {
+                            if (isEncrypting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = TextPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text("Encrypt")
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { showEncryptForm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = SignetPurple
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Add Password Protection",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+            }
+
+            // Migrate section (for legacy-encrypted online keys)
+            if (isOnline && key.encryptionFormat == "legacy" && !showDeleteConfirm && !showUnlock) {
+                HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
+
+                if (showMigrateForm) {
+                    Text(
+                        text = "Migrate to NIP-49",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = "Upgrade to the recommended encryption format",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
+
+                    OutlinedTextField(
+                        value = migratePassphrase,
+                        onValueChange = { migratePassphrase = it },
+                        placeholder = { Text("Enter current passphrase") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SignetPurple,
+                            unfocusedBorderColor = BorderDefault,
+                            cursorColor = SignetPurple,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedPlaceholderColor = TextMuted,
+                            unfocusedPlaceholderColor = TextMuted,
+                            focusedContainerColor = BgTertiary,
+                            unfocusedContainerColor = BgTertiary
+                        )
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showMigrateForm = false
+                                migratePassphrase = ""
+                            },
+                            enabled = !isMigrating,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancel")
+                        }
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isMigrating = true
+                                    error = null
+                                    try {
+                                        val client = SignetApiClient(daemonUrl)
+                                        val result = client.migrateKeyToNip49(key.name, migratePassphrase)
+                                        client.close()
+                                        if (result.ok) {
+                                            onActionComplete()
+                                            onDismiss()
+                                        } else {
+                                            error = result.error ?: "Failed to migrate"
+                                        }
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Failed to migrate"
+                                    } finally {
+                                        isMigrating = false
+                                    }
+                                }
+                            },
+                            enabled = !isMigrating && migratePassphrase.isNotBlank(),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SignetPurple,
+                                contentColor = TextPrimary
+                            )
+                        ) {
+                            if (isMigrating) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = TextPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text("Migrate")
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { showMigrateForm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = SignetPurple
+                        )
+                    ) {
+                        Text("Migrate to NIP-49")
+                    }
+                }
+            }
+
+            // Export section (for online keys)
+            if (isOnline && !showDeleteConfirm && !showUnlock) {
+                HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
+
+                if (exportedKey != null) {
+                    // Show exported key
+                    Text(
+                        text = "Exported Key",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = if (exportedFormat == "ncryptsec") "NIP-49 encrypted (ncryptsec)" else "Plain secret key (nsec)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (exportedFormat == "nsec") Warning else SignetPurple
+                    )
+
+                    if (exportedFormat == "nsec") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = Danger.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = "This is your unencrypted private key. Anyone with access to this key can sign as you. Store it securely.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Danger
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = BgSecondary,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = exportedKey!!.take(20) + "..." + exportedKey!!.takeLast(8),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                copyToClipboard(context, "Exported Key", exportedKey!!)
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy",
+                                tint = SignetPurple,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            exportedKey = null
+                            exportedFormat = null
+                            showExportForm = false
+                            currentPassphrase = ""
+                            exportPassphrase = ""
+                            confirmExportPassphrase = ""
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SignetPurple,
+                            contentColor = TextPrimary
+                        )
+                    ) {
+                        Text("Done")
+                    }
+                } else if (showExportForm) {
+                    Text(
+                        text = "Export Key",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary
+                    )
+
+                    // Format selection
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = exportFormat == "nsec",
+                                onCheckedChange = { if (it) exportFormat = "nsec" },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = SignetPurple,
+                                    uncheckedColor = TextMuted
+                                )
+                            )
+                            Column {
+                                Text("nsec", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                                Text("Plain text", style = MaterialTheme.typography.bodySmall, color = Warning)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = exportFormat == "nip49",
+                                onCheckedChange = { if (it) exportFormat = "nip49" },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = SignetPurple,
+                                    uncheckedColor = TextMuted
+                                )
+                            )
+                            Column {
+                                Text("ncryptsec", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                                Text("NIP-49 encrypted", style = MaterialTheme.typography.bodySmall, color = SignetPurple)
+                            }
+                        }
+                    }
+
+                    // Current passphrase (for encrypted keys)
+                    if (key.isEncrypted) {
+                        OutlinedTextField(
+                            value = currentPassphrase,
+                            onValueChange = { currentPassphrase = it },
+                            placeholder = { Text("Current passphrase") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = SignetPurple,
+                                unfocusedBorderColor = BorderDefault,
+                                cursorColor = SignetPurple,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedPlaceholderColor = TextMuted,
+                                unfocusedPlaceholderColor = TextMuted,
+                                focusedContainerColor = BgTertiary,
+                                unfocusedContainerColor = BgTertiary
+                            )
+                        )
+                    }
+
+                    // Export passphrase (for nip49 format)
+                    if (exportFormat == "nip49") {
+                        OutlinedTextField(
+                            value = exportPassphrase,
+                            onValueChange = { exportPassphrase = it },
+                            placeholder = { Text("Export passphrase") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = SignetPurple,
+                                unfocusedBorderColor = BorderDefault,
+                                cursorColor = SignetPurple,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedPlaceholderColor = TextMuted,
+                                unfocusedPlaceholderColor = TextMuted,
+                                focusedContainerColor = BgTertiary,
+                                unfocusedContainerColor = BgTertiary
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = confirmExportPassphrase,
+                            onValueChange = { confirmExportPassphrase = it },
+                            placeholder = { Text("Confirm export passphrase") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            isError = confirmExportPassphrase.isNotEmpty() && exportPassphrase != confirmExportPassphrase,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = if (exportPassphrase == confirmExportPassphrase) SignetPurple else Danger,
+                                unfocusedBorderColor = if (confirmExportPassphrase.isEmpty() || exportPassphrase == confirmExportPassphrase) BorderDefault else Danger,
+                                cursorColor = SignetPurple,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedPlaceholderColor = TextMuted,
+                                unfocusedPlaceholderColor = TextMuted,
+                                focusedContainerColor = BgTertiary,
+                                unfocusedContainerColor = BgTertiary
+                            )
+                        )
+
+                        if (confirmExportPassphrase.isNotEmpty() && exportPassphrase != confirmExportPassphrase) {
+                            Text(
+                                text = "Passphrases do not match",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Danger
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                showExportForm = false
+                                currentPassphrase = ""
+                                exportPassphrase = ""
+                                confirmExportPassphrase = ""
+                            },
+                            enabled = !isExporting,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancel")
+                        }
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isExporting = true
+                                    error = null
+                                    try {
+                                        val client = SignetApiClient(daemonUrl)
+                                        val result = client.exportKey(
+                                            keyName = key.name,
+                                            format = exportFormat,
+                                            currentPassphrase = if (key.isEncrypted) currentPassphrase else null,
+                                            exportPassphrase = if (exportFormat == "nip49") exportPassphrase else null,
+                                            confirmExportPassphrase = if (exportFormat == "nip49") confirmExportPassphrase else null
+                                        )
+                                        client.close()
+                                        if (result.ok && result.key != null) {
+                                            exportedKey = result.key
+                                            exportedFormat = result.format
+                                        } else {
+                                            error = result.error ?: "Failed to export"
+                                        }
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Failed to export"
+                                    } finally {
+                                        isExporting = false
+                                    }
+                                }
+                            },
+                            enabled = !isExporting &&
+                                    (!key.isEncrypted || currentPassphrase.isNotBlank()) &&
+                                    (exportFormat != "nip49" || (exportPassphrase.isNotBlank() && exportPassphrase == confirmExportPassphrase)),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SignetPurple,
+                                contentColor = TextPrimary
+                            )
+                        ) {
+                            if (isExporting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = TextPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text("Export")
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { showExportForm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = SignetPurple
+                        )
+                    ) {
+                        Text("Export Key")
+                    }
+                }
+            }
+
             // Delete confirmation
             if (showDeleteConfirm) {
                 Text(
@@ -442,11 +1057,11 @@ fun KeyDetailSheet(
 }
 
 @Composable
-private fun EncryptionBadge(isEncrypted: Boolean) {
-    val (color, label) = if (isEncrypted) {
-        Success to "Encrypted"
-    } else {
-        Warning to "Unprotected"
+private fun EncryptionBadge(encryptionFormat: String) {
+    val (color, label) = when (encryptionFormat) {
+        "nip49" -> Success to "NIP-49"
+        "legacy" -> Warning to "Legacy"
+        else -> Warning to "Unprotected"
     }
 
     Text(

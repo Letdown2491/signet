@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,10 +25,13 @@ import androidx.compose.ui.unit.dp
 import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.BgTertiary
 import tech.geektoshi.signet.ui.theme.BorderDefault
+import tech.geektoshi.signet.ui.theme.Danger
 import tech.geektoshi.signet.ui.theme.SignetPurple
 import tech.geektoshi.signet.ui.theme.Success
+import tech.geektoshi.signet.ui.theme.Teal
 import tech.geektoshi.signet.ui.theme.TextMuted
 import tech.geektoshi.signet.ui.theme.TextPrimary
+import tech.geektoshi.signet.ui.theme.Warning
 
 /**
  * Parsed nostrconnect URI data
@@ -136,17 +140,21 @@ private val WSS_RELAY_REGEX = Regex("^wss?://.+", RegexOption.IGNORE_CASE)
 /**
  * Normalize and validate a relay URL.
  * Returns the normalized URL or null if invalid.
+ * Strips trailing slashes for consistent cache keys and API lookups.
  */
 private fun normalizeRelayUrl(relay: String): String? {
     val trimmed = relay.trim()
     if (trimmed.isEmpty()) return null
 
     // Add wss:// if no scheme
-    val normalized = if (trimmed.startsWith("wss://") || trimmed.startsWith("ws://")) {
+    var normalized = if (trimmed.startsWith("wss://") || trimmed.startsWith("ws://")) {
         trimmed
     } else {
         "wss://$trimmed"
     }
+
+    // Strip trailing slashes for consistency with trustedrelays.xyz API
+    normalized = normalized.trimEnd('/')
 
     // Validate the URL format
     if (!WSS_RELAY_REGEX.matches(normalized)) {
@@ -160,6 +168,14 @@ private fun normalizeRelayUrl(relay: String): String? {
     } catch (e: Exception) {
         null
     }
+}
+
+/**
+ * Normalize a relay URL for display and score lookup.
+ * Public version for use in UI components.
+ */
+fun normalizeRelayUrlForDisplay(relay: String): String {
+    return relay.trimEnd('/')
 }
 
 /**
@@ -411,6 +427,109 @@ fun PermissionsBadges(
                     .background(SignetPurple.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             )
+        }
+    }
+}
+
+/**
+ * Get color for trust score badge
+ */
+private fun getScoreColor(score: Int?): androidx.compose.ui.graphics.Color {
+    return when {
+        score == null -> TextMuted
+        score >= 80 -> Success
+        score >= 60 -> Teal
+        score >= 40 -> Warning
+        else -> Danger
+    }
+}
+
+/**
+ * Single relay badge with trust score
+ */
+@Composable
+fun RelayBadge(
+    relayUrl: String,
+    score: Int?,
+    isLoading: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val displayUrl = relayUrl
+        .removePrefix("wss://")
+        .removePrefix("ws://")
+        .trimEnd('/')
+    val scoreColor = getScoreColor(score)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(BgSecondary, RoundedCornerShape(6.dp))
+            .border(1.dp, BorderDefault, RoundedCornerShape(6.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = displayUrl,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextPrimary,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+
+        if (isLoading) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.padding(start = 8.dp).size(12.dp),
+                strokeWidth = 1.5.dp,
+                color = TextMuted
+            )
+        } else {
+            Text(
+                text = score?.toString() ?: "?",
+                style = MaterialTheme.typography.labelSmall,
+                color = scoreColor,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .background(scoreColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Two-column grid of relay badges with trust scores
+ */
+@Composable
+fun RelayBadgesGrid(
+    relays: List<String>,
+    scores: Map<String, Int?>,
+    isLoading: Boolean = false
+) {
+    // Use a simple column with rows of 2 for a cleaner grid layout
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        relays.chunked(2).forEach { rowRelays ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowRelays.forEach { relay ->
+                    val normalizedUrl = normalizeRelayUrlForDisplay(relay)
+                    RelayBadge(
+                        relayUrl = normalizedUrl,
+                        score = scores[normalizedUrl],
+                        isLoading = isLoading,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                // If odd number, add empty spacer for equal column width
+                if (rowRelays.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
         }
     }
 }

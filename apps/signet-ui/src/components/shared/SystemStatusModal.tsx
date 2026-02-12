@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { HealthStatus, RelayStatusResponse, KeyInfo } from '@signet/types';
 import type { UIHealthStatus } from '../../hooks/useHealth.js';
 import type { DeadManSwitchStatus } from '../../lib/api-client.js';
-import { X, CheckCircle, XCircle, ChevronDown, ChevronUp, Timer } from 'lucide-react';
+import { X, XCircle, ChevronDown, ChevronUp, Timer } from 'lucide-react';
 import { formatUptime, formatRelativeTime } from '../../lib/formatters.js';
 import styles from './SystemStatusModal.module.css';
 
@@ -24,6 +24,16 @@ const STATUS_LABELS: Record<UIHealthStatus, string> = {
     degraded: 'Degraded',
     offline: 'Offline',
 };
+
+/**
+ * Get CSS class for trust score badge based on score thresholds
+ */
+function getScoreClass(score: number): string {
+    if (score >= 80) return styles.scoreExcellent;
+    if (score >= 60) return styles.scoreGood;
+    if (score >= 40) return styles.scoreFair;
+    return styles.scorePoor;
+}
 
 export function SystemStatusModal({
     open,
@@ -179,9 +189,27 @@ export function SystemStatusModal({
                                                             : 'Disconnected'}
                                                 </span>
                                             </div>
-                                            <div className={`${styles.relayStatus} ${relay.connected ? styles.connected : styles.disconnected}`}>
-                                                {relay.connected ? <CheckCircle size={18} /> : <XCircle size={18} />}
-                                            </div>
+                                            {relay.connected ? (
+                                                relay.trustScore !== null ? (
+                                                    <span
+                                                        className={`${styles.scoreBadge} ${getScoreClass(relay.trustScore)}`}
+                                                        title={`Trust score: ${relay.trustScore}`}
+                                                    >
+                                                        {relay.trustScore}
+                                                    </span>
+                                                ) : (
+                                                    <span
+                                                        className={`${styles.scoreBadge} ${styles.scoreUnknown}`}
+                                                        title="Trust score unavailable"
+                                                    >
+                                                        ?
+                                                    </span>
+                                                )
+                                            ) : (
+                                                <div className={`${styles.relayStatus} ${styles.disconnected}`}>
+                                                    <XCircle size={18} />
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>

@@ -115,6 +115,16 @@ fun HelpScreen(
                         color = TextSecondary
                     )
                 }
+
+                HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
+
+                ExpandableSection(title = "Relay Trust Scores") {
+                    Text(
+                        text = "Relays display a trust score badge showing their reputation. Scores come from trustedrelays.xyz and are updated hourly.\n\n80+ (Green)\nExcellent reliability\n\n60-79 (Teal)\nGood reliability\n\n40-59 (Yellow)\nFair reliability\n\nBelow 40 (Red)\nPoor reliability\n\n? (Gray)\nScore unavailable\n\nTrust scores are informational only and do not affect how Signet uses relays.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                }
             }
         }
 

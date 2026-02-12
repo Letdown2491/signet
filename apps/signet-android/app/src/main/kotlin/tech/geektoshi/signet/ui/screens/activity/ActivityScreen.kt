@@ -27,7 +27,11 @@ import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Power
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -316,7 +320,7 @@ fun ActivityScreen() {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = error!!,
+                        text = error ?: "Unknown error",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
@@ -349,7 +353,7 @@ fun ActivityScreen() {
                                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                                 )
                             }
-                            items(groupActivity) { activity ->
+                            items(groupActivity, key = { it.id }) { activity ->
                                 AdminActivityCard(activity = activity)
                             }
                         }
@@ -383,7 +387,15 @@ fun ActivityScreen() {
                                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                                 )
                             }
-                            items(groupItems) { item ->
+                            items(
+                                groupItems,
+                                key = { item ->
+                                    when (item) {
+                                        is ActivityItem.Request -> "req-${item.request.id}"
+                                        is ActivityItem.Admin -> "admin-${item.entry.id}"
+                                    }
+                                }
+                            ) { item ->
                                 when (item) {
                                     is ActivityItem.Request -> RequestCard(
                                         request = item.request,
@@ -421,7 +433,7 @@ fun ActivityScreen() {
                                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                             )
                         }
-                        items(groupRequests) { request ->
+                        items(groupRequests, key = { it.id }) { request ->
                             RequestCard(
                                 request = request,
                                 onClick = { selectRequest(request) }
@@ -528,6 +540,9 @@ private fun AdminActivityCard(activity: AdminActivityEntry) {
                         "daemon_started" -> activity.clientVersion?.let { "v$it" } ?: "Signet"
                         "status_checked" -> "System status"
                         "command_executed" -> activity.command ?: "Unknown command"
+                        "auth_failed" -> "Authentication"
+                        "panic_triggered" -> "All keys locked"
+                        "deadman_reset" -> "Timer"
                         else -> activity.keyName ?: activity.appName ?: "Unknown"
                     },
                     style = MaterialTheme.typography.titleSmall,
@@ -575,12 +590,18 @@ private fun getAdminEventIcon(eventType: String): ImageVector {
     return when (eventType) {
         "key_locked" -> Icons.Outlined.Lock
         "key_unlocked" -> Icons.Outlined.LockOpen
+        "key_encrypted" -> Icons.Outlined.Lock
+        "key_migrated" -> Icons.Outlined.Key
+        "key_exported" -> Icons.Outlined.FileDownload
+        "auth_failed" -> Icons.Outlined.Warning
         "app_connected" -> Icons.Outlined.Link
         "app_suspended" -> Icons.Outlined.Pause
         "app_unsuspended" -> Icons.Outlined.PlayArrow
         "daemon_started" -> Icons.Outlined.Power
         "status_checked" -> Icons.Outlined.Search
         "command_executed" -> Icons.Outlined.Build
+        "panic_triggered" -> Icons.Outlined.Warning
+        "deadman_reset" -> Icons.Outlined.Timer
         else -> Icons.Outlined.Info
     }
 }
@@ -590,12 +611,18 @@ private fun getAdminEventLabel(eventType: String): String {
     return when (eventType) {
         "key_locked" -> "Key locked"
         "key_unlocked" -> "Key unlocked"
+        "key_encrypted" -> "Key encrypted"
+        "key_migrated" -> "Encryption migrated"
+        "key_exported" -> "Key exported"
+        "auth_failed" -> "Auth failed"
         "app_connected" -> "App connected"
         "app_suspended" -> "App suspended"
         "app_unsuspended" -> "App resumed"
         "daemon_started" -> "Daemon started"
         "status_checked" -> "Status checked"
         "command_executed" -> "Command executed"
+        "panic_triggered" -> "Panic triggered"
+        "deadman_reset" -> "Inactivity timer reset"
         else -> eventType
     }
 }

@@ -17,12 +17,17 @@
     "start:daemon": "pnpm --filter signet run lfg",
     "start:ui": "pnpm --filter signet-ui run start",
     "dev:ui": "pnpm --filter signet-ui run dev",
-    "sync-version": "node scripts/sync-version.mjs"
+    "sync-version": "node scripts/sync-version.mjs",
+    "typecheck": "pnpm --filter signet --filter signet-ui run typecheck"
   },
-  "version": "1.6.1",
+  "version": "1.9.0",
   "pnpm": {
     "overrides": {
       "http-proxy": "npm:http-proxy-3@^1.23.2"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "better-sqlite3"
+    ]
   }
 }

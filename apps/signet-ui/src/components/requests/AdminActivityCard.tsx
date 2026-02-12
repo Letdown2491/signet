@@ -15,7 +15,9 @@ export function AdminActivityCard({ entry }: AdminActivityCardProps) {
 
   // Build summary based on event type
   let summary = '';
-  if (entry.eventType === 'key_locked' || entry.eventType === 'key_unlocked') {
+  if (entry.eventType === 'key_locked' || entry.eventType === 'key_unlocked' ||
+      entry.eventType === 'key_encrypted' || entry.eventType === 'key_migrated' ||
+      entry.eventType === 'key_exported') {
     summary = entry.keyName || 'Unknown key';
   } else if (entry.eventType === 'app_connected' || entry.eventType === 'app_suspended' || entry.eventType === 'app_unsuspended') {
     summary = entry.appName || `App #${entry.appId}`;
@@ -25,6 +27,12 @@ export function AdminActivityCard({ entry }: AdminActivityCardProps) {
     summary = 'System status';
   } else if (entry.eventType === 'command_executed') {
     summary = entry.command || 'Unknown command';
+  } else if (entry.eventType === 'auth_failed') {
+    summary = 'Authentication';
+  } else if (entry.eventType === 'panic_triggered') {
+    summary = 'All keys locked';
+  } else if (entry.eventType === 'deadman_reset') {
+    summary = 'Timer';
   }
 
   // Build details line: summary • via source • timestamp

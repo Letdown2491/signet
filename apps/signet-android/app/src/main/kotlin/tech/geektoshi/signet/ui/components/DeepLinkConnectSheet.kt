@@ -132,7 +132,7 @@ fun DeepLinkConnectSheet(
             // Parse error
             if (parseError != null) {
                 Text(
-                    text = parseError!!,
+                    text = parseError ?: "Unknown error",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Danger,
                     modifier = Modifier

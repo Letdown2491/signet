@@ -31,7 +31,8 @@ type Nip46Method =
     | 'get_public_key'
     | 'nip04_encrypt' | 'nip04_decrypt'
     | 'nip44_encrypt' | 'nip44_decrypt'
-    | 'ping';
+    | 'ping'
+    | 'switch_relays';
 
 interface Nip46Request {
     id: string;
@@ -301,6 +302,11 @@ export class Nip46Backend {
             return this.handleConnect(id, params, remotePubkey);
         }
 
+        // switch_relays: return signer's preferred relays (no permission required, but must be connected)
+        if (method === 'switch_relays') {
+            return this.handleSwitchRelays(remotePubkey);
+        }
+
         // Check permissions via callback
         const permitted = await this.permitCallback({
             id,
@@ -390,6 +396,34 @@ export class Nip46Backend {
             params,
         });
         return permitted ? 'ack' : undefined;
+    }
+
+    /**
+     * Handle switch_relays request.
+     * Returns the signer's preferred relay list if the client is connected,
+     * otherwise returns undefined (not authorized).
+     * See: https://github.com/nostr-protocol/nips/pull/2193
+     */
+    private async handleSwitchRelays(remotePubkey: string): Promise<string | undefined> {
+        // Check if client has an existing connection (KeyUser record)
+        const keyUser = await prisma.keyUser.findUnique({
+            where: {
+                unique_key_user: {
+                    keyName: this.keyName,
+                    userPubkey: remotePubkey,
+                },
+            },
+            select: { id: true },
+        });
+
+        if (!keyUser) {
+            debug('[%s] switch_relays: no connection found for %s', this.keyName, npubEncode(remotePubkey));
+            return undefined;
+        }
+
+        const relays = this.pool.getRelays();
+        debug('[%s] switch_relays: returning %d relays', this.keyName, relays.length);
+        return JSON.stringify(relays);
     }
 
     /**

@@ -114,6 +114,33 @@ export function HelpPanel() {
               You can change an app's trust level anytime from the Apps page.
             </p>
           </AccordionItem>
+
+          <AccordionItem title="Relay Trust Scores">
+            <p>
+              Relays display a trust score badge showing their reputation. Scores come from{' '}
+              <a href="https://trustedrelays.xyz" target="_blank" rel="noopener noreferrer">trustedrelays.xyz</a>{' '}
+              and are updated hourly.
+            </p>
+            <dl className={styles.definitionList}>
+              <dt>80+ (Green)</dt>
+              <dd>Excellent reliability</dd>
+
+              <dt>60-79 (Teal)</dt>
+              <dd>Good reliability</dd>
+
+              <dt>40-59 (Yellow)</dt>
+              <dd>Fair reliability</dd>
+
+              <dt>Below 40 (Red)</dt>
+              <dd>Poor reliability</dd>
+
+              <dt>? (Gray)</dt>
+              <dd>Score unavailable</dd>
+            </dl>
+            <p className={styles.hint}>
+              Trust scores are informational only and do not affect how Signet uses relays.
+            </p>
+          </AccordionItem>
         </div>
 
         {/* Understanding Requests */}

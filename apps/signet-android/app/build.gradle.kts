@@ -30,7 +30,7 @@ android {
         applicationId = "tech.geektoshi.signet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
+        versionCode = 11
         versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -100,6 +100,9 @@ dependencies {
 
     // Biometric
     implementation(libs.androidx.biometric)
+
+    // Encrypted SharedPreferences
+    implementation(libs.androidx.security.crypto)
 
     // Splash screen
     implementation(libs.androidx.splashscreen)

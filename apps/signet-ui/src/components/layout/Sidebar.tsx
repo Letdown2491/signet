@@ -9,6 +9,16 @@ import styles from './Sidebar.module.css';
 
 export type NavItem = 'home' | 'apps' | 'activity' | 'logs' | 'keys' | 'help' | 'settings';
 
+/**
+ * Get CSS class for trust score badge based on score thresholds
+ */
+function getScoreClass(score: number): string {
+  if (score >= 80) return styles.scoreExcellent;
+  if (score >= 60) return styles.scoreGood;
+  if (score >= 40) return styles.scoreFair;
+  return styles.scorePoor;
+}
+
 interface SidebarProps {
   activeNav: NavItem;
   onNavChange: (nav: NavItem) => void;
@@ -23,6 +33,7 @@ interface SidebarProps {
   onLockKey?: (keyName: string) => Promise<boolean>;
   onUnlockKey?: (keyName: string, passphrase: string) => Promise<boolean>;
   onConnectApp?: () => void;
+  onAddKey?: () => void;
 }
 
 export function Sidebar({
@@ -39,6 +50,7 @@ export function Sidebar({
   onLockKey,
   onUnlockKey,
   onConnectApp,
+  onAddKey,
 }: SidebarProps) {
   const [keysExpanded, setKeysExpanded] = useState(true);
   const [relaysExpanded, setRelaysExpanded] = useState(true);
@@ -168,7 +180,7 @@ export function Sidebar({
               <button
                 type="button"
                 className={styles.sectionAddButton}
-                onClick={() => onNavChange('keys')}
+                onClick={() => onAddKey?.()}
                 aria-label="Add key"
               >
                 <Plus size={14} />
@@ -316,6 +328,21 @@ export function Sidebar({
                         <span className={styles.relayUrl} title={relay.url}>
                           {displayUrl}
                         </span>
+                        {relay.trustScore !== null ? (
+                          <span
+                            className={`${styles.scoreBadge} ${getScoreClass(relay.trustScore)}`}
+                            title={`Trust score: ${relay.trustScore}`}
+                          >
+                            {relay.trustScore}
+                          </span>
+                        ) : (
+                          <span
+                            className={`${styles.scoreBadge} ${styles.scoreUnknown}`}
+                            title="Trust score unavailable"
+                          >
+                            ?
+                          </span>
+                        )}
                       </div>
                     </li>
                   );

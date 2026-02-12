@@ -156,6 +156,7 @@ data class KeyInfo(
     val bunkerUri: String? = null,
     val status: String,
     val isEncrypted: Boolean,
+    val encryptionFormat: String = "none",  // 'none' | 'legacy' | 'nip49'
     val userCount: Int,
     val tokenCount: Int,
     val requestCount: Int,
@@ -234,7 +235,8 @@ data class RelayStatus(
     val url: String,
     val connected: Boolean,
     val lastConnected: String? = null,
-    val lastDisconnected: String? = null
+    val lastDisconnected: String? = null,
+    val trustScore: Int? = null
 )
 
 /**
@@ -447,4 +449,86 @@ data class ResumeAllAppsResponse(
     val ok: Boolean = false,
     val resumedCount: Int = 0,
     val error: String? = null
+)
+
+// ==================== Key Encryption Operations ====================
+
+/**
+ * Request body for creating a key with encryption
+ */
+@Serializable
+data class CreateKeyRequest(
+    val keyName: String,
+    val passphrase: String? = null,
+    val confirmPassphrase: String? = null,
+    val nsec: String? = null,
+    val encryption: String = "none"  // 'none' | 'legacy' | 'nip49'
+)
+
+/**
+ * Response from creating a key
+ */
+@Serializable
+data class CreateKeyResponse(
+    val ok: Boolean = false,
+    val key: KeyInfo? = null,
+    val error: String? = null
+)
+
+/**
+ * Request body for encrypting an unencrypted key
+ */
+@Serializable
+data class EncryptKeyRequest(
+    val encryption: String,  // 'nip49' | 'legacy'
+    val passphrase: String,
+    val confirmPassphrase: String
+)
+
+/**
+ * Request body for migrating a legacy key to NIP-49
+ */
+@Serializable
+data class MigrateKeyRequest(
+    val passphrase: String
+)
+
+/**
+ * Request body for exporting a key
+ */
+@Serializable
+data class ExportKeyRequest(
+    val format: String,  // 'nsec' | 'nip49'
+    val currentPassphrase: String? = null,
+    val exportPassphrase: String? = null,
+    val confirmExportPassphrase: String? = null
+)
+
+/**
+ * Response from exporting a key
+ */
+@Serializable
+data class ExportKeyResponse(
+    val ok: Boolean = false,
+    val key: String? = null,
+    val format: String? = null,  // 'nsec' | 'ncryptsec'
+    val error: String? = null
+)
+
+// ==================== Relay Trust Scores ====================
+
+/**
+ * Request body for fetching relay trust scores
+ */
+@Serializable
+data class RelayTrustScoresRequest(
+    val relays: List<String>
+)
+
+/**
+ * Response from fetching relay trust scores
+ */
+@Serializable
+data class RelayTrustScoresResponse(
+    val scores: Map<String, Int?>
 )

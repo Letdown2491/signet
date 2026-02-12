@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { DisplayRequest, RequestFilter } from '@signet/types';
 
 export type SortBy = 'newest' | 'oldest' | 'expiring';

@@ -50,6 +50,7 @@ export const RELAY_SLEEP_DETECTION_THRESHOLD_MS = RELAY_HEARTBEAT_INTERVAL_MS * 
 // Input validation limits
 export const MAX_KEY_NAME_LENGTH = 64;
 export const MAX_APP_NAME_LENGTH = 128;
-export const MAX_PASSPHRASE_LENGTH = 256;
+export const MIN_PASSPHRASE_LENGTH = 8; // Minimum for security
+export const MAX_PASSPHRASE_LENGTH = 128;
 export const MAX_URI_LENGTH = 2048;
 export const MAX_RELAYS_PER_CONNECTION = 10;

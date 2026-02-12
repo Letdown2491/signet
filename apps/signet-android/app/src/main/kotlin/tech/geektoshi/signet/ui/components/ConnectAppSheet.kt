@@ -103,6 +103,8 @@ fun ConnectAppSheet(
     var error by remember { mutableStateOf<String?>(null) }
     var parseError by remember { mutableStateOf<String?>(null) }
     var parsedData by remember { mutableStateOf<ParsedNostrconnect?>(null) }
+    var relayScores by remember { mutableStateOf<Map<String, Int?>>(emptyMap()) }
+    var loadingScores by remember { mutableStateOf(false) }
 
     // Bunker URI state
     var bunkerKeyName by remember { mutableStateOf("") }
@@ -135,6 +137,7 @@ fun ConnectAppSheet(
         if (uri.isBlank()) {
             parsedData = null
             parseError = null
+            relayScores = emptyMap()
             return@LaunchedEffect
         }
 
@@ -150,8 +153,31 @@ fun ConnectAppSheet(
             onFailure = { e ->
                 parsedData = null
                 parseError = e.message
+                relayScores = emptyMap()
             }
         )
+    }
+
+    // Fetch trust scores when relays are parsed
+    LaunchedEffect(parsedData?.relays) {
+        val relays = parsedData?.relays
+        if (relays.isNullOrEmpty()) {
+            relayScores = emptyMap()
+            return@LaunchedEffect
+        }
+
+        loadingScores = true
+        try {
+            val client = SignetApiClient(daemonUrl)
+            val response = client.getRelayTrustScores(relays)
+            client.close()
+            relayScores = response.scores
+        } catch (_: Exception) {
+            // Silently fail - scores are optional
+            relayScores = emptyMap()
+        } finally {
+            loadingScores = false
+        }
     }
 
     // Update URI if initialUri changes (e.g., from QR scan)
@@ -557,7 +583,7 @@ fun ConnectAppSheet(
 
                     if (parseError != null) {
                         Text(
-                            text = parseError!!,
+                            text = parseError ?: "Unknown error",
                             style = MaterialTheme.typography.bodySmall,
                             color = Danger
                         )
@@ -593,17 +619,17 @@ fun ConnectAppSheet(
                             )
                         )
 
-                        // Relay summary
-                        val firstRelay = data.relays.firstOrNull()?.removePrefix("wss://") ?: "unknown relay"
-                        val relaySummary = when (data.relays.size) {
-                            1 -> "via $firstRelay"
-                            2 -> "via $firstRelay and 1 other"
-                            else -> "via $firstRelay and ${data.relays.size - 1} others"
-                        }
+                        // Relays with trust scores
                         Text(
-                            text = relaySummary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted
+                            text = "Relays",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary
+                        )
+
+                        RelayBadgesGrid(
+                            relays = data.relays,
+                            scores = relayScores,
+                            isLoading = loadingScores
                         )
 
                         // Key Selection

@@ -1,5 +1,5 @@
 // Connection types
-export type { ConnectionInfo, RelayStatus, RelayStatusResponse } from './connection.js';
+export type { ConnectionInfo, RelayStatus, RelayStatusResponse, RelayTrustScoreResponse } from './connection.js';
 
 // Request types
 export type {

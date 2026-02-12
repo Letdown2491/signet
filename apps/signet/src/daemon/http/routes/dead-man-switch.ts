@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getDeadManSwitchService } from '../../services/index.js';
-import type { PreHandlerFull } from '../types.js';
+import type { PreHandlerAuthCsrf } from '../types.js';
 import { sendError } from '../../lib/route-errors.js';
 import { toErrorMessage } from '../../lib/errors.js';
 
 export function registerDeadManSwitchRoutes(
     fastify: FastifyInstance,
-    preHandler: PreHandlerFull
+    preHandler: PreHandlerAuthCsrf
 ): void {
     // Get status (GET - no CSRF needed)
     fastify.get('/dead-man-switch', { preHandler: preHandler.auth }, async (_request: FastifyRequest, reply: FastifyReply) => {

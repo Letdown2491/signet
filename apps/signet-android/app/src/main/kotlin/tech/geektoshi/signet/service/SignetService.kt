@@ -28,6 +28,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Foreground service that maintains SSE connection to the Signet daemon.
@@ -38,9 +40,13 @@ class SignetService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var eventJob: Job? = null
     private var countdownJob: Job? = null
-    private var pendingCount = 0
-    private var isConnected = false
+    @Volatile private var pendingCount = 0
+    private val isConnected = AtomicBoolean(false)
     private val eventBus = EventBusRepository.getInstance()
+
+    // Debounce notification updates (minimum 500ms between updates)
+    private val lastNotificationUpdate = AtomicLong(0L)
+    private val notificationDebounceMs = 500L
 
     // Inactivity lock state
     private var deadManSwitchStatus: DeadManSwitchStatus? = null
@@ -116,8 +122,16 @@ class SignetService : Service() {
             eventBus.connect(daemonUrl)
 
             // Subscribe to events for notifications
-            eventBus.events.collect { event ->
-                handleEvent(event)
+            try {
+                eventBus.events.collect { event ->
+                    handleEvent(event)
+                }
+            } catch (e: Exception) {
+                // Log error but don't crash the service
+                android.util.Log.e("SignetService", "SSE event collection error", e)
+                // Mark as disconnected
+                isConnected.set(false)
+                updateServiceNotification(ConnectionState.DISCONNECTED)
             }
         }
     }
@@ -127,15 +141,14 @@ class SignetService : Service() {
         countdownJob = serviceScope.launch {
             while (isActive) {
                 delay(UiConstants.COUNTDOWN_TICKER_INTERVAL_MS)
-                deadManSwitchStatus?.let { status ->
-                    if (status.enabled && status.panicTriggeredAt == null) {
-                        // Decrement remaining time locally
-                        status.remainingSec?.let { remaining ->
-                            val newRemaining = (remaining - 60).coerceAtLeast(0)
-                            deadManSwitchStatus = status.copy(remainingSec = newRemaining)
-                            checkWarningThresholds()
-                            updateServiceNotification(ConnectionState.CONNECTED)
-                        }
+                // Only tick if dead man switch is active (enabled, not panicked, has remaining time)
+                val status = deadManSwitchStatus
+                if (status != null && status.enabled && status.panicTriggeredAt == null) {
+                    status.remainingSec?.let { remaining ->
+                        val newRemaining = (remaining - 60).coerceAtLeast(0)
+                        deadManSwitchStatus = status.copy(remainingSec = newRemaining)
+                        checkWarningThresholds()
+                        updateServiceNotificationDebounced(ConnectionState.CONNECTED)
                     }
                 }
             }
@@ -145,13 +158,13 @@ class SignetService : Service() {
     private fun handleEvent(event: ServerEvent) {
         when (event) {
             is ServerEvent.Connected -> {
-                isConnected = true
-                updateServiceNotification(ConnectionState.CONNECTED)
+                isConnected.set(true)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
             }
 
             is ServerEvent.RequestCreated -> {
                 pendingCount++
-                updateServiceNotification(ConnectionState.CONNECTED)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
                 showRequestNotification(event.request)
             }
 
@@ -159,32 +172,32 @@ class SignetService : Service() {
             is ServerEvent.RequestDenied,
             is ServerEvent.RequestExpired -> {
                 if (pendingCount > 0) pendingCount--
-                updateServiceNotification(ConnectionState.CONNECTED)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
             }
 
             is ServerEvent.StatsUpdated -> {
                 pendingCount = event.stats.pendingRequests
-                updateServiceNotification(ConnectionState.CONNECTED)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
             }
 
             is ServerEvent.DeadmanPanic -> {
                 deadManSwitchStatus = event.status
                 lastWarningLevel = WarningLevel.PANIC
                 showPanicNotification()
-                updateServiceNotification(ConnectionState.CONNECTED)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
             }
 
             is ServerEvent.DeadmanReset -> {
                 deadManSwitchStatus = event.status
                 lastWarningLevel = WarningLevel.NONE
                 clearInactivityNotifications()
-                updateServiceNotification(ConnectionState.CONNECTED)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
             }
 
             is ServerEvent.DeadmanUpdated -> {
                 deadManSwitchStatus = event.status
                 checkWarningThresholds()
-                updateServiceNotification(ConnectionState.CONNECTED)
+                updateServiceNotificationDebounced(ConnectionState.CONNECTED)
             }
 
             else -> {
@@ -340,6 +353,20 @@ class SignetService : Service() {
         val notification = createServiceNotification(state)
         val notificationManager = getSystemService(android.app.NotificationManager::class.java)
         notificationManager.notify(SignetApplication.SERVICE_NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Debounced version of updateServiceNotification to reduce notification manager overhead.
+     * Skips updates if called within notificationDebounceMs of the last update.
+     */
+    private fun updateServiceNotificationDebounced(state: ConnectionState) {
+        val now = System.currentTimeMillis()
+        val lastUpdate = lastNotificationUpdate.get()
+        if (now - lastUpdate >= notificationDebounceMs) {
+            if (lastNotificationUpdate.compareAndSet(lastUpdate, now)) {
+                updateServiceNotification(state)
+            }
+        }
     }
 
     private fun createServiceNotification(state: ConnectionState): Notification {

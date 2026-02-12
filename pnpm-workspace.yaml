@@ -3,5 +3,4 @@ packages:
   - apps/signet-ui
   - packages/*
 
-onlyBuiltDependencies:
-  - prisma
+onlyBuiltDependencies: '["@prisma/engines", "better-sqlite3"]'

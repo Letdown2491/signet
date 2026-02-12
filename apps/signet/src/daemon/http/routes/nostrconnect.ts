@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { PreHandlerFull } from '../types.js';
+import type { PreHandlerAuthCsrf } from '../types.js';
 import type { TrustLevel } from '@signet/types';
 import { sendError } from '../../lib/route-errors.js';
 import prisma from '../../../db.js';
@@ -26,7 +26,7 @@ export interface NostrconnectRouteConfig {
 export function registerNostrconnectRoutes(
     fastify: FastifyInstance,
     config: NostrconnectRouteConfig,
-    preHandler: PreHandlerFull
+    preHandler: PreHandlerAuthCsrf
 ): void {
     /**
      * POST /nostrconnect

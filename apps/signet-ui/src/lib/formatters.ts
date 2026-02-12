@@ -84,7 +84,6 @@ export const formatFutureDate = (date: string): string => {
   const now = new Date();
   const diffMs = d.getTime() - now.getTime();
   const diffHours = diffMs / (1000 * 60 * 60);
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
   // If less than 24 hours, show time only
   if (diffHours < 24 && diffHours > 0) {
@@ -194,7 +193,7 @@ export interface HelpfulError {
  * Maps errors to helpful user-friendly versions.
  * Handles both typed errors (ApiError, TimeoutError) and string messages.
  */
-export function getHelpfulErrorMessage(error: unknown, context?: string): HelpfulError {
+export function getHelpfulErrorMessage(error: unknown): HelpfulError {
   // Handle typed errors first (more reliable than string matching)
   if (error instanceof TimeoutError) {
     return {
@@ -205,18 +204,18 @@ export function getHelpfulErrorMessage(error: unknown, context?: string): Helpfu
   }
 
   if (error instanceof ApiError) {
-    return getHelpfulApiError(error, context);
+    return getHelpfulApiError(error);
   }
 
   // Fall back to string matching for legacy/unknown errors
   const errorStr = error instanceof Error ? error.message : String(error);
-  return getHelpfulErrorFromString(errorStr, context);
+  return getHelpfulErrorFromString(errorStr);
 }
 
 /**
  * Handle ApiError with structured status code checking.
  */
-function getHelpfulApiError(error: ApiError, context?: string): HelpfulError {
+function getHelpfulApiError(error: ApiError): HelpfulError {
   // Check status code first (most reliable)
   if (error.status === 401) {
     return {
@@ -330,7 +329,7 @@ function getHelpfulApiError(error: ApiError, context?: string): HelpfulError {
 /**
  * Legacy string-based error matching for non-typed errors.
  */
-function getHelpfulErrorFromString(error: string, context?: string): HelpfulError {
+function getHelpfulErrorFromString(error: string): HelpfulError {
   const errorLower = error.toLowerCase();
 
   // Key/passphrase related

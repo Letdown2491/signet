@@ -171,6 +171,15 @@ class SignetSSEClient(
         isLenient = true
     }
 
+    // Pre-compiled regex for extracting event type from SSE data
+    private val typeRegex = """"type"\s*:\s*"([^"]+)"""".toRegex()
+
+    companion object {
+        // Maximum consecutive connection failures before giving up
+        // After max failures, the client will stop retrying until manually reconnected
+        private const val MAX_CONSECUTIVE_FAILURES = 10
+    }
+
     private val client = HttpClient(OkHttp) {
         defaultRequest {
             url(baseUrl)
@@ -183,16 +192,19 @@ class SignetSSEClient(
      * Returns a Flow of ServerEvents. The flow will automatically reconnect
      * with exponential backoff on connection errors.
      *
-     * The flow runs until cancelled.
+     * The flow runs until cancelled or max consecutive failures is reached.
+     * After max failures, emits Unknown("connection_failed") and stops.
      */
     fun events(): Flow<ServerEvent> = flow {
         var reconnectDelay = NetworkConstants.SSE_INITIAL_RECONNECT_DELAY_MS
+        var consecutiveFailures = 0
 
-        while (coroutineContext.isActive) {
+        while (coroutineContext.isActive && consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
             try {
                 client.prepareGet("/events").execute { response ->
-                    // Reset reconnect delay on successful connection
+                    // Reset on successful connection
                     reconnectDelay = NetworkConstants.SSE_INITIAL_RECONNECT_DELAY_MS
+                    consecutiveFailures = 0
 
                     val channel = response.bodyAsChannel()
 
@@ -220,21 +232,26 @@ class SignetSSEClient(
             } catch (e: CancellationException) {
                 throw e // Don't catch cancellation
             } catch (_: Exception) {
-                // Connection error - will retry with backoff
+                // Connection error - increment failure count
+                consecutiveFailures++
             }
 
-            // Reconnect with exponential backoff
-            if (coroutineContext.isActive) {
+            // Reconnect with exponential backoff (if not at max failures)
+            if (coroutineContext.isActive && consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
                 delay(reconnectDelay)
                 reconnectDelay = min(reconnectDelay * 2, NetworkConstants.SSE_MAX_RECONNECT_DELAY_MS)
             }
+        }
+
+        // Emit a special event if we've exhausted retries
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && coroutineContext.isActive) {
+            emit(ServerEvent.Unknown("connection_failed"))
         }
     }
 
     private fun parseEvent(data: String): ServerEvent? {
         return try {
             // First, parse to get the type
-            val typeRegex = """"type"\s*:\s*"([^"]+)"""".toRegex()
             val typeMatch = typeRegex.find(data)
             val type = typeMatch?.groupValues?.get(1) ?: return null
 

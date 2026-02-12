@@ -64,13 +64,20 @@ describe('validateAppName', () => {
 describe('validatePassphrase', () => {
     it('should accept valid passphrases', () => {
         expect(validatePassphrase('correct horse battery staple')).toEqual({ valid: true });
-        expect(validatePassphrase('short')).toEqual({ valid: true });
+        expect(validatePassphrase('password123')).toEqual({ valid: true }); // 8+ chars
+        expect(validatePassphrase('12345678')).toEqual({ valid: true }); // exactly 8 chars
     });
 
-    it('should accept empty/null passphrases', () => {
+    it('should accept empty/null passphrases (unencrypted key)', () => {
         expect(validatePassphrase('')).toEqual({ valid: true });
         expect(validatePassphrase(null)).toEqual({ valid: true });
         expect(validatePassphrase(undefined)).toEqual({ valid: true });
+    });
+
+    it('should reject passphrases that are too short', () => {
+        const result = validatePassphrase('short');
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('at least');
     });
 
     it('should reject passphrases that are too long', () => {

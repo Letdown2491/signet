@@ -83,7 +83,7 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
   const [status, setStatus] = useState<DeadManSwitchStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0); // Force re-render for countdown
+  const [_tick, setTick] = useState(0); // Force re-render for countdown
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { subscribe } = useServerEventsContext();
@@ -147,6 +147,7 @@ export function useDeadManSwitch(): UseDeadManSwitchResult {
         countdownIntervalRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.enabled, status?.panicTriggeredAt, status?.lastResetAt, status?.timeframeSec]);
 
   // Calculate current remaining (recalculated on each render/tick)

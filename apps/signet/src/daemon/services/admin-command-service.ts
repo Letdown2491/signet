@@ -21,6 +21,11 @@ const PROCESSED_EVENT_TTL_MS = 60 * 60 * 1000;
 // Max processed events to track (prevents unbounded growth)
 const PROCESSED_EVENT_MAX_SIZE = 10_000;
 
+// Reconnection backoff settings
+const RECONNECT_BASE_DELAY_MS = 5_000;      // Start with 5s
+const RECONNECT_MAX_DELAY_MS = 60_000;      // Max 60s between retries
+const RECONNECT_MAX_RETRIES = 10;           // Max retries before giving up on a relay
+
 const debug = createDebug('signet:admin');
 
 /**
@@ -65,6 +70,10 @@ export class AdminCommandService {
     });
     // Subscription generation to invalidate old reconnection attempts
     private subscriptionGeneration = 0;
+    // Track pending reconnection timers to prevent memory leaks
+    private reconnectTimers: Set<NodeJS.Timeout> = new Set();
+    // Track retry counts per relay for exponential backoff
+    private relayRetryCounts: Map<string, number> = new Map();
 
     constructor(options: {
         config: KillSwitchConfig;
@@ -179,9 +188,19 @@ export class AdminCommandService {
     }
 
     /**
-     * Close all active websocket connections
+     * Close all active websocket connections and clear pending timers
      */
     private closeAllWebsockets(): void {
+        // Clear all pending reconnection timers first
+        for (const timer of this.reconnectTimers) {
+            clearTimeout(timer);
+        }
+        this.reconnectTimers.clear();
+
+        // Reset retry counts
+        this.relayRetryCounts.clear();
+
+        // Close all websockets
         for (const ws of this.websockets) {
             try {
                 // Remove all event listeners before closing to prevent memory leaks
@@ -259,6 +278,7 @@ export class AdminCommandService {
                 return;
             }
             logger.debug('Kill switch connected to relay', { relay });
+            this.onRelayConnected(relay);
             const req = JSON.stringify(['REQ', subId, filter]);
             ws.send(req);
         });
@@ -305,16 +325,72 @@ export class AdminCommandService {
             debug('WebSocket closed for %s', relay);
             // Only attempt reconnection if generation matches and still running
             if (this.isRunning && generation === this.subscriptionGeneration) {
-                setTimeout(() => {
-                    if (this.isRunning && generation === this.subscriptionGeneration) {
-                        logger.debug('Kill switch reconnecting', { relay });
-                        this.connectToRelay(relay, filter, recipientPubkeys);
-                    }
-                }, 5000);
+                this.scheduleReconnect(relay, filter, recipientPubkeys, generation, 'nip04');
             }
         });
 
         this.websockets.push(ws);
+    }
+
+    /**
+     * Schedule a reconnection attempt with exponential backoff
+     */
+    private scheduleReconnect(
+        relay: string,
+        filter: object,
+        recipientPubkeys: string[],
+        generation: number,
+        type: 'nip04' | 'nip17'
+    ): void {
+        // Get current retry count for this relay
+        const retryCount = this.relayRetryCounts.get(relay) ?? 0;
+
+        // Check if we've exceeded max retries
+        if (retryCount >= RECONNECT_MAX_RETRIES) {
+            logger.warn('Kill switch: max retries exceeded for relay', { relay, retryCount });
+            return;
+        }
+
+        // Calculate delay with exponential backoff
+        const delay = Math.min(
+            RECONNECT_BASE_DELAY_MS * Math.pow(2, retryCount),
+            RECONNECT_MAX_DELAY_MS
+        );
+
+        debug('scheduling reconnect for %s in %dms (attempt %d)', relay, delay, retryCount + 1);
+
+        const timer = setTimeout(() => {
+            // Remove this timer from tracking
+            this.reconnectTimers.delete(timer);
+
+            // Check if still valid
+            if (!this.isRunning || generation !== this.subscriptionGeneration) {
+                return;
+            }
+
+            // Increment retry count
+            this.relayRetryCounts.set(relay, retryCount + 1);
+
+            logger.debug('Kill switch reconnecting', { relay, attempt: retryCount + 1 });
+            if (type === 'nip04') {
+                this.connectToRelay(relay, filter, recipientPubkeys);
+            } else {
+                this.connectToRelayNip17(relay, filter);
+            }
+        }, delay);
+
+        // Track the timer so we can clear it on shutdown
+        this.reconnectTimers.add(timer);
+    }
+
+    /**
+     * Reset retry count for a relay on successful connection
+     */
+    private onRelayConnected(relay: string): void {
+        if (this.relayRetryCounts.has(relay)) {
+            debug('resetting retry count for %s', relay);
+            this.relayRetryCounts.delete(relay);
+        }
     }
 
     /**
@@ -346,6 +422,7 @@ export class AdminCommandService {
                 return;
             }
             logger.debug('Kill switch connected to relay for NIP-17', { relay });
+            this.onRelayConnected(relay);
             const req = JSON.stringify(['REQ', subId, filter]);
             ws.send(req);
         });
@@ -386,12 +463,8 @@ export class AdminCommandService {
         ws.on('close', () => {
             debug('NIP-17 WebSocket closed for %s', relay);
             if (this.isRunning && generation === this.subscriptionGeneration) {
-                setTimeout(() => {
-                    if (this.isRunning && generation === this.subscriptionGeneration) {
-                        logger.debug('Kill switch reconnecting for NIP-17', { relay });
-                        this.connectToRelayNip17(relay, filter);
-                    }
-                }, 5000);
+                // Pass empty array for recipientPubkeys since NIP-17 doesn't need it
+                this.scheduleReconnect(relay, filter, [], generation, 'nip17');
             }
         });
 
@@ -692,11 +765,10 @@ export class AdminCommandService {
             case 'locked':
                 return `✓ Locked key '${result.keyName}'`;
             case 'not_found':
-                return `⚠ Key '${result.keyName}' not found`;
             case 'already_locked':
-                return `⚠ Key '${result.keyName}' is already locked`;
             case 'not_encrypted':
-                return `⚠ Cannot lock '${result.keyName}' - key is not encrypted`;
+                // Generic message prevents key enumeration attacks
+                return `⚠ Could not lock key '${result.keyName}'`;
         }
     }
 
@@ -710,12 +782,9 @@ export class AdminCommandService {
             a.userPubkey.toLowerCase().startsWith(appName.toLowerCase())
         );
 
-        if (!app) {
-            return `⚠ App '${appName}' not found`;
-        }
-
-        if (app.suspendedAt) {
-            return `⚠ App '${app.description || app.userPubkey.slice(0, 8)}' is already suspended`;
+        // Generic message prevents app enumeration attacks
+        if (!app || app.suspendedAt) {
+            return `⚠ Could not suspend app '${appName}'`;
         }
 
         try {
@@ -727,7 +796,8 @@ export class AdminCommandService {
             });
             return `✓ Suspended app '${app.description || app.userPubkey.slice(0, 8)}'`;
         } catch (error) {
-            return `⚠ Failed to suspend app: ${toErrorMessage(error)}`;
+            // Generic message prevents revealing internal errors
+            return `⚠ Could not suspend app '${appName}'`;
         }
     }
 
@@ -741,12 +811,9 @@ export class AdminCommandService {
             a.userPubkey.toLowerCase().startsWith(appName.toLowerCase())
         );
 
-        if (!app) {
-            return `⚠ App '${appName}' not found`;
-        }
-
-        if (!app.suspendedAt) {
-            return `⚠ App '${app.description || app.userPubkey.slice(0, 8)}' is not suspended`;
+        // Generic message prevents app enumeration attacks
+        if (!app || !app.suspendedAt) {
+            return `⚠ Could not resume app '${appName}'`;
         }
 
         try {
@@ -758,7 +825,8 @@ export class AdminCommandService {
             });
             return `✓ Resumed app '${app.description || app.userPubkey.slice(0, 8)}'`;
         } catch (error) {
-            return `⚠ Failed to resume app: ${toErrorMessage(error)}`;
+            // Generic message prevents revealing internal errors
+            return `⚠ Could not resume app '${appName}'`;
         }
     }
 
@@ -979,13 +1047,37 @@ export class AdminCommandService {
      * Publish an event to all admin relays via raw WebSocket
      */
     private async publishEvent(event: Event): Promise<void> {
+        // Track all resources for cleanup
+        const websockets: WebSocket[] = [];
+        const timeouts: NodeJS.Timeout[] = [];
+
+        const cleanup = () => {
+            // Clear all pending timeouts
+            for (const timeout of timeouts) {
+                clearTimeout(timeout);
+            }
+            // Close all websockets and remove listeners
+            for (const ws of websockets) {
+                try {
+                    ws.removeAllListeners();
+                    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                        ws.close();
+                    }
+                } catch {
+                    // Ignore close errors
+                }
+            }
+        };
+
         const publishPromises = this.config.adminRelays.map(relay => {
             return new Promise<void>((resolve, reject) => {
                 const ws = new WebSocket(relay);
+                websockets.push(ws);
+
                 const timeout = setTimeout(() => {
-                    ws.close();
                     reject(new Error('Publish timeout'));
                 }, 10000);
+                timeouts.push(timeout);
 
                 ws.on('open', () => {
                     ws.send(JSON.stringify(['EVENT', event]));
@@ -996,8 +1088,6 @@ export class AdminCommandService {
                     try {
                         const parsed = JSON.parse(msg);
                         if (parsed[0] === 'OK' && parsed[1] === event.id) {
-                            clearTimeout(timeout);
-                            ws.close();
                             if (parsed[2]) {
                                 debug('Published to %s', relay);
                                 resolve();
@@ -1011,14 +1101,18 @@ export class AdminCommandService {
                 });
 
                 ws.on('error', (err: Error) => {
-                    clearTimeout(timeout);
                     reject(err);
                 });
             });
         });
 
-        // Wait for at least one successful publish
-        await Promise.any(publishPromises);
+        try {
+            // Wait for at least one successful publish
+            await Promise.any(publishPromises);
+        } finally {
+            // Always cleanup all resources, whether success or failure
+            cleanup();
+        }
     }
 
     /**

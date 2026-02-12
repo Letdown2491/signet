@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import type { ConnectionInfo, TrustLevel, DisplayRequest } from '@signet/types';
+import type { TrustLevel, DisplayRequest } from '@signet/types';
 import { fetchConnectionInfo } from './lib/connection.js';
 import { ToastProvider, useToast } from './contexts/ToastContext.js';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext.js';
@@ -32,13 +32,13 @@ import './styles.css';
 type NotificationPermissionState = 'default' | 'granted' | 'denied' | 'unsupported';
 
 function AppContent() {
-  const [connectionInfo, setConnectionInfo] = useState<ConnectionInfo | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [activeNav, setActiveNav] = useState<NavItem>('home');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>('default');
   const [detailsModalRequest, setDetailsModalRequest] = useState<DisplayRequest | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [connectAppModalOpen, setConnectAppModalOpen] = useState(false);
+  const [showCreateKeyForm, setShowCreateKeyForm] = useState(false);
   const [selectedKeyName, setSelectedKeyName] = useState<string | null>(null);
   const [showAutoApproved, setShowAutoApproved] = useState(true);
   const [appNames, setAppNames] = useState<Record<string, string>>({});
@@ -56,11 +56,9 @@ function AppContent() {
   const health = useHealth();
   const deadManSwitch = useDeadManSwitch();
 
-  // Load connection info
+  // Wait for initial connection before showing the app
   useEffect(() => {
     fetchConnectionInfo()
-      .then(setConnectionInfo)
-      .catch(console.error)
       .finally(() => setConnectionLoading(false));
   }, []);
 
@@ -68,6 +66,7 @@ function AppContent() {
   useEffect(() => {
     keys.refresh();
     apps.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Check notification permission on mount
@@ -138,6 +137,12 @@ function AppContent() {
     setActiveNav(nav);
   }, []);
 
+  // Handle add key from sidebar
+  const handleAddKey = useCallback(() => {
+    setActiveNav('keys');
+    setShowCreateKeyForm(true);
+  }, []);
+
   // Switch request filter based on active page
   // Home page needs pending requests, Activity page needs processed requests
   useEffect(() => {
@@ -147,6 +152,7 @@ function AppContent() {
       // 'all' in the backend means processed (approved, denied, expired)
       requests.setFilter('all');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNav]);
 
   // Handle app name changes for connect requests
@@ -308,7 +314,6 @@ function AppContent() {
             suspendingAll={apps.suspendingAll}
             resumingAll={apps.resumingAll}
             onClearError={apps.clearError}
-            onNavigateToHelp={() => setActiveNav('help')}
             onOpenConnectModal={() => setConnectAppModalOpen(true)}
           />
         );
@@ -327,32 +332,13 @@ function AppContent() {
             meta={requests.meta}
             selectionMode={requests.selectionMode}
             selectedIds={requests.selectedIds}
-            bulkApproving={requests.bulkApproving}
             searchQuery={requests.searchQuery}
             sortBy={requests.sortBy}
             onFilterChange={requests.setFilter}
             onPasswordChange={requests.setPassword}
             onApprove={requests.approve}
             onLoadMore={requests.loadMore}
-            onToggleSelectionMode={requests.toggleSelectionMode}
             onToggleSelection={requests.toggleSelection}
-            onSelectAll={requests.selectAll}
-            onDeselectAll={requests.deselectAll}
-            onBulkApprove={async () => {
-              const result = await requests.bulkApprove();
-              if (result.approved > 0) {
-                showToast({
-                  message: `Approved ${result.approved} request${result.approved > 1 ? 's' : ''}`,
-                  type: 'success',
-                });
-              }
-              if (result.failed > 0) {
-                showToast({
-                  message: `Failed to approve ${result.failed} request${result.failed > 1 ? 's' : ''}`,
-                  type: 'error',
-                });
-              }
-            }}
             onSearchChange={requests.setSearchQuery}
             onSortChange={requests.setSortBy}
             onRefresh={requests.refresh}
@@ -375,7 +361,10 @@ function AppContent() {
             locking={keys.locking}
             lockingAll={keys.lockingAll}
             renaming={keys.renaming}
-            settingPassphrase={keys.settingPassphrase}
+            encrypting={keys.encrypting}
+            migrating={keys.migrating}
+            exporting={keys.exporting}
+            forceShowCreateForm={showCreateKeyForm}
             onCreateKey={keys.createKey}
             onDeleteKey={keys.deleteKey}
             onUnlockKey={keys.unlockKey}
@@ -391,8 +380,11 @@ function AppContent() {
               return result;
             }}
             onRenameKey={keys.renameKey}
-            onSetPassphrase={keys.setPassphrase}
+            onEncryptKey={keys.encryptKey}
+            onMigrateKey={keys.migrateKey}
+            onExportKey={keys.exportKey}
             onClearError={keys.clearError}
+            onCreateFormClose={() => setShowCreateKeyForm(false)}
           />
         );
 
@@ -429,6 +421,7 @@ function AppContent() {
       onLockKey={keys.lockKey}
       onUnlockKey={keys.unlockKey}
       onConnectApp={() => setConnectAppModalOpen(true)}
+      onAddKey={handleAddKey}
     >
       {renderContent()}
 

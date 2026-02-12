@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { RequestService, AppService } from '../../services/index.js';
 import { emitCurrentStats } from '../../services/index.js';
 import type { TrustLevel, ActivityEntry } from '@signet/types';
-import type { PreHandlerFull } from '../types.js';
+import type { PreHandlerFull, RequestWithId, ProcessRequestRequest } from '../types.js';
 import prisma from '../../../db.js';
 import { grantPermissionsByTrustLevel, permitAllRequests, type AllowScope } from '../../lib/acl.js';
 import { getEventService } from '../../services/event-service.js';
@@ -99,11 +99,13 @@ export function registerRequestRoutes(
     });
 
     // Web authorization page (HTML)
-    fastify.get('/requests/:id', authorizeRequestWebHandler);
+    fastify.get('/requests/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+        return authorizeRequestWebHandler(request as RequestWithId, reply);
+    });
 
     // Process request approval (API)
     fastify.post('/requests/:id', { preHandler: preHandler.rateLimit }, async (request: FastifyRequest, reply: FastifyReply) => {
-        return processRequestWebHandler(request, reply);
+        return processRequestWebHandler(request as ProcessRequestRequest, reply);
     });
 
     // Deny request (DELETE - needs CSRF)

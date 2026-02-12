@@ -32,8 +32,8 @@ const METHOD_LABELS: Record<keyof MethodBreakdown, string> = {
 
 function MethodBreakdownBar({ breakdown }: { breakdown: MethodBreakdown }) {
   const entries = Object.entries(breakdown) as Array<[keyof MethodBreakdown, number]>;
-  const nonZero = entries.filter(([_, count]) => count > 0).sort((a, b) => b[1] - a[1]);
-  const total = nonZero.reduce((sum, [_, count]) => sum + count, 0);
+  const nonZero = entries.filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]);
+  const total = nonZero.reduce((sum, [, count]) => sum + count, 0);
 
   if (total === 0) return null;
 
@@ -79,7 +79,6 @@ interface AppsPanelProps {
   onSuspendAllApps: (until?: Date) => Promise<{ success: boolean; suspendedCount?: number }>;
   onResumeAllApps: () => Promise<{ success: boolean; resumedCount?: number }>;
   onClearError: () => void;
-  onNavigateToHelp: () => void;
   onOpenConnectModal: () => void;
 }
 
@@ -97,7 +96,6 @@ export function AppsPanel({
   onSuspendAllApps,
   onResumeAllApps,
   onClearError,
-  onNavigateToHelp,
   onOpenConnectModal,
 }: AppsPanelProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);

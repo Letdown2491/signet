@@ -203,17 +203,22 @@ export class TTLCache<V> {
      */
     cleanup(): void {
         const now = Date.now();
-        let cleaned = 0;
 
+        // Collect expired keys first to avoid modifying Map while iterating
+        const expiredKeys: string[] = [];
         for (const [key, entry] of this.cache) {
             if (now > entry.expiresAt) {
-                this.cache.delete(key);
-                cleaned++;
+                expiredKeys.push(key);
             }
         }
 
-        if (cleaned > 0) {
-            debug('cleaned %d expired entries from %s', cleaned, this.name);
+        // Delete collected keys
+        for (const key of expiredKeys) {
+            this.cache.delete(key);
+        }
+
+        if (expiredKeys.length > 0) {
+            debug('cleaned %d expired entries from %s', expiredKeys.length, this.name);
         }
     }
 
@@ -273,13 +278,19 @@ export class TTLCache<V> {
      * Useful for invalidating related entries (e.g., by prefix).
      */
     deleteMatching(predicate: (key: string, value: V) => boolean): number {
-        let deleted = 0;
+        // Collect matching keys first to avoid modifying Map while iterating
+        const keysToDelete: string[] = [];
         for (const [key, entry] of this.cache) {
             if (predicate(key, entry.value)) {
-                this.cache.delete(key);
-                deleted++;
+                keysToDelete.push(key);
             }
         }
-        return deleted;
+
+        // Delete collected keys
+        for (const key of keysToDelete) {
+            this.cache.delete(key);
+        }
+
+        return keysToDelete.length;
     }
 }

@@ -1,6 +1,10 @@
 import type { Event } from 'nostr-tools/pure';
+import createDebug from 'debug';
 import prisma from '../../db.js';
 import { ACL_CACHE_TTL_MS, ACL_CACHE_MAX_SIZE } from '../constants.js';
+import { TTLCache } from './ttl-cache.js';
+
+const debug = createDebug('signet:acl');
 
 export type RpcMethod =
     | 'connect'
@@ -12,8 +16,8 @@ export type RpcMethod =
     | 'ping';
 
 /**
- * Simple LRU-like cache for ACL decisions with TTL.
- * Reduces database load for repeated requests from the same app.
+ * Cache entry for ACL decisions.
+ * Uses TTLCache for automatic TTL expiration and periodic cleanup.
  */
 interface CacheEntry {
     keyUser: {
@@ -24,7 +28,6 @@ interface CacheEntry {
         trustLevel: string | null;
     };
     hasExplicitDeny: boolean;
-    timestamp: number;
 }
 
 /**
@@ -43,41 +46,31 @@ function isCurrentlySuspended(suspendedAt: Date | null, suspendUntil: Date | nul
     return suspendUntil.getTime() > Date.now();
 }
 
-const aclCache = new Map<string, CacheEntry>();
+/**
+ * ACL cache using TTLCache for automatic expiration and periodic cleanup.
+ * This prevents memory leaks from expired entries that are never accessed.
+ */
+const aclCache = new TTLCache<CacheEntry>('acl-cache', {
+    ttlMs: ACL_CACHE_TTL_MS,
+    maxSize: ACL_CACHE_MAX_SIZE,
+});
 
 function getCacheKey(keyName: string, remotePubkey: string): string {
-    return `${keyName}:${remotePubkey}`;
+    // Use null byte as delimiter to prevent collision attacks
+    // (e.g., keyName="a:b" + pubkey="c" vs keyName="a" + pubkey="b:c")
+    return `${keyName}\x00${remotePubkey}`;
 }
 
 function getCachedEntry(keyName: string, remotePubkey: string): CacheEntry | null {
     const key = getCacheKey(keyName, remotePubkey);
-    const entry = aclCache.get(key);
-
-    if (!entry) {
-        return null;
-    }
-
-    // Check TTL
-    if (Date.now() - entry.timestamp > ACL_CACHE_TTL_MS) {
-        aclCache.delete(key);
-        return null;
-    }
-
-    return entry;
+    // TTLCache.get() automatically returns undefined for expired entries
+    return aclCache.get(key) ?? null;
 }
 
-function setCachedEntry(keyName: string, remotePubkey: string, entry: Omit<CacheEntry, 'timestamp'>): void {
+function setCachedEntry(keyName: string, remotePubkey: string, entry: CacheEntry): void {
     const key = getCacheKey(keyName, remotePubkey);
-
-    // Simple size limit - remove oldest entries when full
-    if (aclCache.size >= ACL_CACHE_MAX_SIZE) {
-        const firstKey = aclCache.keys().next().value;
-        if (firstKey) {
-            aclCache.delete(firstKey);
-        }
-    }
-
-    aclCache.set(key, { ...entry, timestamp: Date.now() });
+    // TTLCache handles TTL and max size automatically
+    aclCache.set(key, entry);
 }
 
 /**
@@ -93,11 +86,8 @@ export function invalidateAclCache(keyName: string, remotePubkey: string): void 
  * Call this when revoking all apps for a key.
  */
 export function invalidateAclCacheForKey(keyName: string): void {
-    for (const key of aclCache.keys()) {
-        if (key.startsWith(`${keyName}:`)) {
-            aclCache.delete(key);
-        }
-    }
+    const prefix = `${keyName}\x00`;
+    aclCache.deleteMatching((key) => key.startsWith(prefix));
 }
 
 /**
@@ -347,7 +337,13 @@ export async function checkRequestPermission(
         });
 
         if (!keyUser) {
-            return { permitted: undefined, autoApproved: false };
+            // Unknown client - only allow 'connect' requests to proceed to authorization
+            // All other requests from unknown clients are rejected immediately
+            // This prevents request floods from clients that haven't connected yet
+            if (method === 'connect') {
+                return { permitted: undefined, autoApproved: false };
+            }
+            return { permitted: false, autoApproved: false };
         }
 
         // Check if user is revoked
@@ -414,8 +410,9 @@ export async function checkRequestPermission(
         prisma.keyUser.update({
             where: { id: keyUserId },
             data: { lastUsedAt: new Date() },
-        }).catch(() => {
-            // Ignore errors on lastUsedAt update
+        }).catch((error) => {
+            // Log at debug level - this is non-critical but shouldn't be completely silent
+            debug('Failed to update lastUsedAt for keyUser %d: %s', keyUserId, error?.message ?? error);
         });
         return { permitted: true, autoApproved: true, approvalType: 'auto_trust', keyUserId };
     }

@@ -65,9 +65,13 @@ fun CreateKeySheet(
     val confirmPassphraseState = remember { mutableStateOf("") }
     var confirmPassphrase by confirmPassphraseState
     var usePassphrase by remember { mutableStateOf(false) }
+    var encryptionFormat by remember { mutableStateOf("nip49") }  // 'nip49' | 'legacy'
     var importExisting by remember { mutableStateOf(false) }
     val nsecState = remember { mutableStateOf("") }
     var nsec by nsecState
+
+    // Detect ncryptsec import
+    val isNcryptsecImport = nsec.trim().startsWith("ncryptsec1")
 
     // Clear sensitive data when sheet is dismissed
     ClearSensitiveDataOnDispose(passphraseState, confirmPassphraseState, nsecState)
@@ -78,9 +82,10 @@ fun CreateKeySheet(
     val keyNameValidation = if (keyName.isNotBlank()) InputValidation.validateKeyName(keyName) else null
     val nsecValidation = if (importExisting && nsec.isNotBlank()) InputValidation.validateNsec(nsec) else null
 
+    // For ncryptsec import, we only need passphrase verification (no confirm)
     val canCreate = keyName.isNotBlank() &&
             (keyNameValidation?.isValid ?: false) &&
-            (!usePassphrase || (passphrase.isNotBlank() && passphraseMatch)) &&
+            (if (isNcryptsecImport) passphrase.isNotBlank() else (!usePassphrase || (passphrase.isNotBlank() && passphraseMatch))) &&
             (!importExisting || (nsec.isNotBlank() && (nsecValidation?.isValid ?: true)))
 
     ModalBottomSheet(
@@ -163,12 +168,16 @@ fun CreateKeySheet(
                 OutlinedTextField(
                     value = nsec,
                     onValueChange = { nsec = it },
-                    placeholder = { Text("nsec1...") },
+                    placeholder = { Text("nsec1... or ncryptsec1...") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     isError = nsecValidation?.isValid == false,
-                    supportingText = nsecValidation?.errorMessage?.let { { Text(it, color = Danger) } },
+                    supportingText = if (isNcryptsecImport) {
+                        { Text("NIP-49 encrypted key detected", color = SignetPurple) }
+                    } else {
+                        nsecValidation?.errorMessage?.let { { Text(it, color = Danger) } }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = if (nsecValidation?.isValid == false) Danger else SignetPurple,
@@ -182,87 +191,157 @@ fun CreateKeySheet(
                         unfocusedContainerColor = BgTertiary
                     )
                 )
-            }
 
-            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
-
-            // Password protection option
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = usePassphrase,
-                    onCheckedChange = { usePassphrase = it },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = SignetPurple,
-                        uncheckedColor = TextMuted
-                    )
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Password protect",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "Encrypt key with a passphrase",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextMuted
+                // Show passphrase field for ncryptsec verification
+                if (isNcryptsecImport) {
+                    OutlinedTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        placeholder = { Text("Enter passphrase to verify") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SignetPurple,
+                            unfocusedBorderColor = BorderDefault,
+                            cursorColor = SignetPurple,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedPlaceholderColor = TextMuted,
+                            unfocusedPlaceholderColor = TextMuted,
+                            focusedContainerColor = BgTertiary,
+                            unfocusedContainerColor = BgTertiary
+                        )
                     )
                 }
             }
 
-            if (usePassphrase) {
-                OutlinedTextField(
-                    value = passphrase,
-                    onValueChange = { passphrase = it },
-                    placeholder = { Text("Enter passphrase") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = SignetPurple,
-                        unfocusedBorderColor = BorderDefault,
-                        cursorColor = SignetPurple,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedPlaceholderColor = TextMuted,
-                        unfocusedPlaceholderColor = TextMuted,
-                        focusedContainerColor = BgTertiary,
-                        unfocusedContainerColor = BgTertiary
-                    )
-                )
+            // Only show password protection option if not importing ncryptsec
+            if (!isNcryptsecImport) {
+                HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
 
-                OutlinedTextField(
-                    value = confirmPassphrase,
-                    onValueChange = { confirmPassphrase = it },
-                    placeholder = { Text("Confirm passphrase") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    isError = confirmPassphrase.isNotEmpty() && !passphraseMatch,
+                // Password protection option
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = if (passphraseMatch) SignetPurple else Danger,
-                        unfocusedBorderColor = if (confirmPassphrase.isEmpty() || passphraseMatch) BorderDefault else Danger,
-                        cursorColor = SignetPurple,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedPlaceholderColor = TextMuted,
-                        unfocusedPlaceholderColor = TextMuted,
-                        focusedContainerColor = BgTertiary,
-                        unfocusedContainerColor = BgTertiary
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = usePassphrase,
+                        onCheckedChange = { usePassphrase = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = SignetPurple,
+                            uncheckedColor = TextMuted
+                        )
                     )
-                )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Password protect",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Encrypt key with a passphrase",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted
+                        )
+                    }
+                }
 
-                if (confirmPassphrase.isNotEmpty() && !passphraseMatch) {
+                if (usePassphrase) {
+                    // Encryption format selection
                     Text(
-                        text = "Passphrases do not match",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Danger
+                        text = "Encryption Format",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = encryptionFormat == "nip49",
+                                onCheckedChange = { if (it) encryptionFormat = "nip49" },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = SignetPurple,
+                                    uncheckedColor = TextMuted
+                                )
+                            )
+                            Column {
+                                Text("NIP-49", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                                Text("Recommended", style = MaterialTheme.typography.bodySmall, color = SignetPurple)
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = encryptionFormat == "legacy",
+                                onCheckedChange = { if (it) encryptionFormat = "legacy" },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = SignetPurple,
+                                    uncheckedColor = TextMuted
+                                )
+                            )
+                            Text("Legacy", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        placeholder = { Text("Enter passphrase") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SignetPurple,
+                            unfocusedBorderColor = BorderDefault,
+                            cursorColor = SignetPurple,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedPlaceholderColor = TextMuted,
+                            unfocusedPlaceholderColor = TextMuted,
+                            focusedContainerColor = BgTertiary,
+                            unfocusedContainerColor = BgTertiary
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = confirmPassphrase,
+                        onValueChange = { confirmPassphrase = it },
+                        placeholder = { Text("Confirm passphrase") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        isError = confirmPassphrase.isNotEmpty() && !passphraseMatch,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = if (passphraseMatch) SignetPurple else Danger,
+                            unfocusedBorderColor = if (confirmPassphrase.isEmpty() || passphraseMatch) BorderDefault else Danger,
+                            cursorColor = SignetPurple,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedPlaceholderColor = TextMuted,
+                            unfocusedPlaceholderColor = TextMuted,
+                            focusedContainerColor = BgTertiary,
+                            unfocusedContainerColor = BgTertiary
+                        )
+                    )
+
+                    if (confirmPassphrase.isNotEmpty() && !passphraseMatch) {
+                        Text(
+                            text = "Passphrases do not match",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Danger
+                        )
+                    }
                 }
             }
 
@@ -297,10 +376,18 @@ fun CreateKeySheet(
                             error = null
                             try {
                                 val client = SignetApiClient(daemonUrl)
+                                // Determine encryption type
+                                val encryption = when {
+                                    isNcryptsecImport -> "nip49"  // Server detects ncryptsec, passphrase for verification
+                                    usePassphrase -> encryptionFormat
+                                    else -> "none"
+                                }
                                 val result = client.createKey(
                                     keyName = keyName,
-                                    passphrase = if (usePassphrase) passphrase else null,
-                                    nsec = if (importExisting) nsec else null
+                                    passphrase = if (isNcryptsecImport || usePassphrase) passphrase else null,
+                                    confirmPassphrase = if (!isNcryptsecImport && usePassphrase) confirmPassphrase else null,
+                                    nsec = if (importExisting) nsec else null,
+                                    encryption = encryption
                                 )
                                 client.close()
                                 if (result.ok) {

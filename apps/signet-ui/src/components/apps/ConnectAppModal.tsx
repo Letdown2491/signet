@@ -12,10 +12,12 @@ import {
   RefreshCw,
   Share2,
   ScanLine,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { KeyInfo, TrustLevel } from '@signet/types';
-import { connectViaNostrconnect, generateConnectionToken } from '../../lib/api-client.js';
+import { connectViaNostrconnect, generateConnectionToken, getRelayTrustScores } from '../../lib/api-client.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import {
   parseNostrconnectUri,
@@ -73,6 +75,9 @@ export function ConnectAppModal({
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [relayScores, setRelayScores] = useState<Record<string, number | null>>({});
+  const [loadingScores, setLoadingScores] = useState(false);
 
   // Bunker URI state
   const [bunkerKeyName, setBunkerKeyName] = useState('');
@@ -115,6 +120,29 @@ export function ConnectAppModal({
       setAppName(parsedData.name);
     }
   }, [parsedData?.name, appName]);
+
+  // Fetch trust scores when relays are parsed
+  useEffect(() => {
+    if (!parsedData?.relays?.length) {
+      setRelayScores({});
+      return;
+    }
+
+    const fetchScores = async () => {
+      setLoadingScores(true);
+      try {
+        const result = await getRelayTrustScores(parsedData.relays);
+        setRelayScores(result.scores);
+      } catch {
+        // Silently fail - scores are optional
+        setRelayScores({});
+      } finally {
+        setLoadingScores(false);
+      }
+    };
+
+    fetchScores();
+  }, [parsedData?.relays]);
 
   // Countdown timer for bunker URI
   useEffect(() => {
@@ -170,6 +198,27 @@ export function ConnectAppModal({
     }
   }, [bunkerUri]);
 
+  const handleClose = useCallback(() => {
+    // Reset NostrConnect state
+    setUri('');
+    setAppName('');
+    setSelectedKeyName('');
+    setTrustLevel('reasonable');
+    setError(null);
+    setShowScanner(false);
+    setDetailsExpanded(false);
+    setRelayScores({});
+    setLoadingScores(false);
+    // Reset Bunker state
+    setBunkerUri(null);
+    setBunkerError(null);
+    setExpiresAt(null);
+    setCopied(false);
+    // Reset tab
+    setActiveTab('bunker');
+    onClose();
+  }, [onClose]);
+
   const handleConnect = useCallback(async () => {
     if (!parsedData || !selectedKeyName) return;
 
@@ -200,7 +249,7 @@ export function ConnectAppModal({
     } finally {
       setConnecting(false);
     }
-  }, [parsedData, selectedKeyName, trustLevel, uri, appName, onSuccess]);
+  }, [parsedData, selectedKeyName, trustLevel, uri, appName, onSuccess, handleClose]);
 
   // Handle QR scan result
   const handleQRScan = useCallback((result: string) => {
@@ -213,24 +262,6 @@ export function ConnectAppModal({
     return result.startsWith('nostrconnect://');
   }, []);
 
-  const handleClose = useCallback(() => {
-    // Reset NostrConnect state
-    setUri('');
-    setAppName('');
-    setSelectedKeyName('');
-    setTrustLevel('reasonable');
-    setError(null);
-    setShowScanner(false);
-    // Reset Bunker state
-    setBunkerUri(null);
-    setBunkerError(null);
-    setExpiresAt(null);
-    setCopied(false);
-    // Reset tab
-    setActiveTab('bunker');
-    onClose();
-  }, [onClose]);
-
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -239,6 +270,15 @@ export function ConnectAppModal({
     },
     [handleClose]
   );
+
+  // Get CSS class for trust score badge color
+  const getScoreClass = (score: number | null | undefined): string => {
+    if (score === null || score === undefined) return styles.scoreUnknown;
+    if (score >= 80) return styles.scoreExcellent;
+    if (score >= 60) return styles.scoreGood;
+    if (score >= 40) return styles.scoreFair;
+    return styles.scorePoor;
+  };
 
   if (!open) return null;
 
@@ -470,7 +510,7 @@ export function ConnectAppModal({
                     value={uri}
                     onChange={(e) => setUri(e.target.value)}
                     placeholder="nostrconnect://..."
-                    rows={3}
+                    rows={2}
                     autoFocus
                   />
                   {hasParseError && (
@@ -485,118 +525,163 @@ export function ConnectAppModal({
               {/* Parsed Info */}
               {parsedData && (
                 <>
-                  {/* App Name Input */}
-                  <div className={styles.field}>
-                    <label htmlFor="app-name" className={styles.label}>
-                      App Name
-                    </label>
-                    <input
-                      id="app-name"
-                      type="text"
-                      className={styles.input}
-                      value={appName}
-                      onChange={(e) => setAppName(e.target.value)}
-                      placeholder="Enter a name for this app"
-                    />
-                  </div>
+                  {/* Detected App Section */}
+                  <div className={styles.section}>
+                    <h4 className={styles.sectionTitle}>Detected App</h4>
 
-                  {/* Client Info */}
-                  <div className={styles.infoBox}>
-                    <div className={styles.infoRow}>
-                      <span className={styles.infoLabel}>Client</span>
-                      <span className={styles.infoValue} title={parsedData.clientPubkey}>
-                        {truncatePubkey(parsedData.clientPubkey)}
-                      </span>
-                    </div>
-                    <div className={styles.infoRow}>
-                      <span className={styles.infoLabel}>Relays</span>
-                      <span className={styles.infoValue}>
-                        {parsedData.relays.map((r) => r.replace('wss://', '')).join(', ')}
-                      </span>
-                    </div>
-                    {parsedData.url && (
-                      <div className={styles.infoRow}>
-                        <span className={styles.infoLabel}>URL</span>
-                        <a
-                          href={parsedData.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={styles.infoLink}
-                        >
-                          <Globe size={12} />
-                          {parsedData.url.replace(/^https?:\/\//, '')}
-                        </a>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Key Selection */}
-                  <div className={styles.field}>
-                    <label htmlFor="key-select" className={styles.label}>
-                      <Key size={14} />
-                      Sign with Key
-                    </label>
-                    {activeKeys.length === 0 ? (
-                      <p className={styles.noKeys}>No active keys. Unlock a key first.</p>
-                    ) : (
-                      <select
-                        id="key-select"
-                        className={styles.select}
-                        value={selectedKeyName}
-                        onChange={(e) => setSelectedKeyName(e.target.value)}
-                      >
-                        {activeKeys.map((key) => (
-                          <option key={key.name} value={key.name}>
-                            {key.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-
-                  {/* Trust Level */}
-                  <div className={styles.field}>
-                    <label htmlFor="trust-level" className={styles.label}>
-                      <Shield size={14} />
-                      Trust Level
-                    </label>
-                    <select
-                      id="trust-level"
-                      className={styles.select}
-                      value={trustLevel}
-                      onChange={(e) => setTrustLevel(e.target.value as TrustLevel)}
-                    >
-                      {TRUST_LEVEL_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className={styles.fieldHint}>
-                      {TRUST_LEVEL_OPTIONS.find((o) => o.value === trustLevel)?.description}
-                    </p>
-                  </div>
-
-                  {/* Requested Permissions (informational) */}
-                  {parsedData.permissions.length > 0 && (
+                    {/* App Name Input */}
                     <div className={styles.field}>
-                      <span className={styles.label}>App is requesting</span>
-                      <div className={styles.permissionsInfo}>
-                        {parsedData.permissions.map((perm) => {
-                          const key =
-                            perm.kind !== undefined ? `${perm.method}:${perm.kind}` : perm.method;
+                      <label htmlFor="app-name" className={styles.label}>
+                        Name
+                      </label>
+                      <input
+                        id="app-name"
+                        type="text"
+                        className={styles.input}
+                        value={appName}
+                        onChange={(e) => setAppName(e.target.value)}
+                        placeholder="Enter a name for this app"
+                      />
+                    </div>
+
+                    {/* Relays with Trust Scores */}
+                    <div className={styles.field}>
+                      <span className={styles.label}>Relays</span>
+                      <div className={styles.relayBadges}>
+                        {parsedData.relays.map((relay) => {
+                          // Normalize URL for display and score lookup (strip protocol and trailing slash)
+                          const normalizedUrl = relay.replace(/\/+$/, '');
+                          const score = relayScores[normalizedUrl];
+                          const displayUrl = normalizedUrl.replace(/^wss?:\/\//, '');
                           return (
-                            <span key={key} className={styles.permissionTag}>
-                              {formatPermission(perm)}
-                            </span>
+                            <div key={relay} className={styles.relayBadge} title={normalizedUrl}>
+                              <span className={styles.relayUrl}>{displayUrl}</span>
+                              {loadingScores ? (
+                                <Loader2 size={12} className={styles.spinning} />
+                              ) : (
+                                <span className={`${styles.relayScore} ${getScoreClass(score)}`}>
+                                  {score !== null ? score : '?'}
+                                </span>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
-                      <p className={styles.fieldHint}>
-                        These are what the app says it needs. Your trust level controls what actually gets auto-approved.
-                      </p>
+                    </div>
+                  </div>
+
+                  {/* Collapsible Details Section */}
+                  {(parsedData.url || parsedData.permissions.length > 0) && (
+                    <div className={styles.section}>
+                      <button
+                        type="button"
+                        className={styles.detailsToggle}
+                        onClick={() => setDetailsExpanded(!detailsExpanded)}
+                        aria-expanded={detailsExpanded}
+                      >
+                        {detailsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        <span>Details</span>
+                      </button>
+
+                      {detailsExpanded && (
+                        <div className={styles.detailsContent}>
+                          {/* Client ID */}
+                          <div className={styles.detailRow}>
+                            <span className={styles.detailLabel}>Client ID</span>
+                            <span className={styles.detailValue} title={parsedData.clientPubkey}>
+                              {truncatePubkey(parsedData.clientPubkey)}
+                            </span>
+                          </div>
+
+                          {/* URL */}
+                          {parsedData.url && (
+                            <div className={styles.detailRow}>
+                              <span className={styles.detailLabel}>URL</span>
+                              <a
+                                href={parsedData.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.detailLink}
+                              >
+                                <Globe size={12} />
+                                {parsedData.url.replace(/^https?:\/\//, '')}
+                              </a>
+                            </div>
+                          )}
+
+                          {/* Requested Permissions */}
+                          {parsedData.permissions.length > 0 && (
+                            <div className={styles.detailRow}>
+                              <span className={styles.detailLabel}>Requesting</span>
+                              <div className={styles.permissionsInfo}>
+                                {parsedData.permissions.map((perm) => {
+                                  const key =
+                                    perm.kind !== undefined ? `${perm.method}:${perm.kind}` : perm.method;
+                                  return (
+                                    <span key={key} className={styles.permissionTag}>
+                                      {formatPermission(perm)}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {/* Connection Settings Section */}
+                  <div className={styles.section}>
+                    <h4 className={styles.sectionTitle}>Connection Settings</h4>
+
+                    {/* Key Selection */}
+                    <div className={styles.field}>
+                      <label htmlFor="key-select" className={styles.label}>
+                        <Key size={14} />
+                        Sign with Key
+                      </label>
+                      {activeKeys.length === 0 ? (
+                        <p className={styles.noKeys}>No active keys. Unlock a key first.</p>
+                      ) : (
+                        <select
+                          id="key-select"
+                          className={styles.select}
+                          value={selectedKeyName}
+                          onChange={(e) => setSelectedKeyName(e.target.value)}
+                        >
+                          {activeKeys.map((key) => (
+                            <option key={key.name} value={key.name}>
+                              {key.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Trust Level */}
+                    <div className={styles.field}>
+                      <label htmlFor="trust-level" className={styles.label}>
+                        <Shield size={14} />
+                        Trust Level
+                      </label>
+                      <select
+                        id="trust-level"
+                        className={styles.select}
+                        value={trustLevel}
+                        onChange={(e) => setTrustLevel(e.target.value as TrustLevel)}
+                      >
+                        {TRUST_LEVEL_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className={styles.fieldHint}>
+                        {TRUST_LEVEL_OPTIONS.find((o) => o.value === trustLevel)?.description}
+                      </p>
+                    </div>
+                  </div>
                 </>
               )}
 

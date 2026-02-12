@@ -250,7 +250,7 @@ fun AppsScreen() {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = error!!,
+                    text = error ?: "Unknown error",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextMuted
                 )
@@ -367,7 +367,7 @@ fun AppsScreen() {
                     )
                 }
             } else {
-                items(apps) { app ->
+                items(apps, key = { it.id }) { app ->
                     AppCard(
                         app = app,
                         onClick = { selectedApp = app; Unit }

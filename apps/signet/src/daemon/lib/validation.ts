@@ -8,6 +8,7 @@
 import {
     MAX_KEY_NAME_LENGTH,
     MAX_APP_NAME_LENGTH,
+    MIN_PASSPHRASE_LENGTH,
     MAX_PASSPHRASE_LENGTH,
     MAX_URI_LENGTH,
     MAX_RELAYS_PER_CONNECTION,
@@ -64,12 +65,17 @@ export function validateAppName(name: string | undefined | null): ValidationResu
 
 /**
  * Validate a passphrase.
+ * - Must meet minimum length for security (when provided)
  * - Must not exceed max length (to prevent DoS via expensive hashing)
  * - Empty is valid (means no encryption)
  */
 export function validatePassphrase(passphrase: string | undefined | null): ValidationResult {
     if (!passphrase) {
-        return { valid: true }; // No passphrase is valid
+        return { valid: true }; // No passphrase is valid (unencrypted key)
+    }
+
+    if (passphrase.length < MIN_PASSPHRASE_LENGTH) {
+        return { valid: false, error: `Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters` };
     }
 
     if (passphrase.length > MAX_PASSPHRASE_LENGTH) {

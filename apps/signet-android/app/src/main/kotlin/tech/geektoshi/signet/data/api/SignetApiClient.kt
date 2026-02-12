@@ -5,6 +5,12 @@ import tech.geektoshi.signet.data.model.AdminActivityResponse
 import tech.geektoshi.signet.data.model.ApproveRequestBody
 import tech.geektoshi.signet.data.model.AppsResponse
 import tech.geektoshi.signet.data.model.ConnectionTokenResponse
+import tech.geektoshi.signet.data.model.CreateKeyRequest
+import tech.geektoshi.signet.data.model.CreateKeyResponse
+import tech.geektoshi.signet.data.model.EncryptKeyRequest
+import tech.geektoshi.signet.data.model.ExportKeyRequest
+import tech.geektoshi.signet.data.model.ExportKeyResponse
+import tech.geektoshi.signet.data.model.MigrateKeyRequest
 import tech.geektoshi.signet.data.model.SuspendAppBody
 import tech.geektoshi.signet.data.model.SuspendAllAppsBody
 import tech.geektoshi.signet.data.model.SuspendAllAppsResponse
@@ -22,6 +28,8 @@ import tech.geektoshi.signet.data.model.NostrconnectRequest
 import tech.geektoshi.signet.data.model.NostrconnectResponse
 import tech.geektoshi.signet.data.model.OperationResponse
 import tech.geektoshi.signet.data.model.RelaysResponse
+import tech.geektoshi.signet.data.model.RelayTrustScoresRequest
+import tech.geektoshi.signet.data.model.RelayTrustScoresResponse
 import tech.geektoshi.signet.data.model.RequestsResponse
 import tech.geektoshi.signet.data.model.UpdateDeadManSwitchBody
 import io.ktor.client.HttpClient
@@ -165,19 +173,23 @@ class SignetApiClient(
     }
 
     /**
-     * Create a new key
+     * Create a new key with optional encryption
      */
     suspend fun createKey(
         keyName: String,
         passphrase: String? = null,
-        nsec: String? = null
-    ): OperationResponse {
+        confirmPassphrase: String? = null,
+        nsec: String? = null,
+        encryption: String = "none"  // 'none' | 'legacy' | 'nip49'
+    ): CreateKeyResponse {
         return client.post("/keys") {
-            setBody(mapOf(
-                "keyName" to keyName,
-                "passphrase" to passphrase,
-                "nsec" to nsec
-            ).filterValues { it != null })
+            setBody(CreateKeyRequest(
+                keyName = keyName,
+                passphrase = passphrase,
+                confirmPassphrase = confirmPassphrase,
+                nsec = nsec,
+                encryption = encryption
+            ))
         }.body()
     }
 
@@ -234,6 +246,56 @@ class SignetApiClient(
     suspend fun generateConnectionToken(keyName: String): ConnectionTokenResponse {
         return client.post("/keys/$keyName/connection-token") {
             setBody(emptyMap<String, String>())
+        }.body()
+    }
+
+    /**
+     * Encrypt an unencrypted key with a passphrase
+     */
+    suspend fun encryptKey(
+        keyName: String,
+        encryption: String,  // 'nip49' | 'legacy'
+        passphrase: String,
+        confirmPassphrase: String
+    ): OperationResponse {
+        return client.post("/keys/$keyName/encrypt") {
+            setBody(EncryptKeyRequest(
+                encryption = encryption,
+                passphrase = passphrase,
+                confirmPassphrase = confirmPassphrase
+            ))
+        }.body()
+    }
+
+    /**
+     * Migrate a legacy-encrypted key to NIP-49 format
+     */
+    suspend fun migrateKeyToNip49(
+        keyName: String,
+        passphrase: String
+    ): OperationResponse {
+        return client.post("/keys/$keyName/migrate") {
+            setBody(MigrateKeyRequest(passphrase = passphrase))
+        }.body()
+    }
+
+    /**
+     * Export a key in nsec or NIP-49 (ncryptsec) format
+     */
+    suspend fun exportKey(
+        keyName: String,
+        format: String,  // 'nsec' | 'nip49'
+        currentPassphrase: String? = null,
+        exportPassphrase: String? = null,
+        confirmExportPassphrase: String? = null
+    ): ExportKeyResponse {
+        return client.post("/keys/$keyName/export") {
+            setBody(ExportKeyRequest(
+                format = format,
+                currentPassphrase = currentPassphrase,
+                exportPassphrase = exportPassphrase,
+                confirmExportPassphrase = confirmExportPassphrase
+            ))
         }.body()
     }
 
@@ -331,6 +393,16 @@ class SignetApiClient(
      */
     suspend fun getRelays(): RelaysResponse {
         return withRetry { client.get("/relays").body() }
+    }
+
+    /**
+     * Get trust scores for arbitrary relay URLs.
+     * Used by NostrConnect modal to show scores for app-specified relays.
+     */
+    suspend fun getRelayTrustScores(relays: List<String>): RelayTrustScoresResponse {
+        return client.post("/relays/trust-scores") {
+            setBody(RelayTrustScoresRequest(relays = relays))
+        }.body()
     }
 
     /**

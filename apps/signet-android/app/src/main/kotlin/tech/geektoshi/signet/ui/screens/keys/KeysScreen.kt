@@ -236,7 +236,7 @@ fun KeysScreen() {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = error!!,
+                        text = error ?: "Unknown error",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextMuted
                     )
@@ -316,7 +316,7 @@ fun KeysScreen() {
                         )
                     }
                 } else {
-                    items(keys) { key ->
+                    items(keys, key = { it.name }) { key ->
                         KeyCard(
                             key = key,
                             onClick = { selectedKey = key }

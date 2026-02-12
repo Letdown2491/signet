@@ -90,18 +90,13 @@ interface RequestsPanelProps {
   meta: Record<string, RequestMeta>;
   selectionMode: boolean;
   selectedIds: Set<string>;
-  bulkApproving: boolean;
   searchQuery: string;
   sortBy: SortBy;
   onFilterChange: (filter: RequestFilter) => void;
   onPasswordChange: (id: string, password: string) => void;
   onApprove: (id: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number) => void;
   onLoadMore: () => void;
-  onToggleSelectionMode: () => void;
   onToggleSelection: (id: string) => void;
-  onSelectAll: () => void;
-  onDeselectAll: () => void;
-  onBulkApprove: () => void;
   onSearchChange: (query: string) => void;
   onSortChange: (sort: SortBy) => void;
   onRefresh: () => void;
@@ -118,18 +113,13 @@ export function RequestsPanel({
   meta,
   selectionMode,
   selectedIds,
-  bulkApproving,
   searchQuery,
   sortBy,
   onFilterChange,
   onPasswordChange,
   onApprove,
   onLoadMore,
-  onToggleSelectionMode,
   onToggleSelection,
-  onSelectAll,
-  onDeselectAll,
-  onBulkApprove,
   onSearchChange,
   onSortChange,
   onRefresh,

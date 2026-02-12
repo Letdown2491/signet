@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { KeyInfo, ConnectedApp } from '@signet/types';
-import { ChevronDown, ChevronRight, Copy, QrCode, Lock, Unlock, Trash2, Users, Pencil, Shield } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, QrCode, Lock, Unlock, Trash2, Users, Pencil, Shield, Download, ArrowUpCircle, HelpCircle } from 'lucide-react';
 import { formatRelativeTime, toNpub } from '../../lib/formatters.js';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
 import { copyToClipboard as copyText } from '../../lib/clipboard.js';
@@ -15,12 +15,16 @@ interface KeyCardProps {
   unlocking: string | null;  // Key name being unlocked, or null
   locking: string | null;    // Key name being locked, or null
   renaming: boolean;
-  settingPassphrase: boolean;
+  encrypting: boolean;
+  migrating: boolean;
+  exporting: boolean;
   onToggleExpand: () => void;
   onUnlock: (passphrase: string) => Promise<boolean>;
   onLock: () => void;
   onRename: (newName: string) => Promise<boolean>;
-  onSetPassphrase: (passphrase: string) => Promise<boolean>;
+  onEncrypt: (encryption: 'nip49' | 'legacy', passphrase: string, confirmPassphrase: string) => Promise<boolean>;
+  onMigrate: (passphrase: string) => Promise<boolean>;
+  onExport: (format: 'nsec' | 'nip49', currentPassphrase?: string, exportPassphrase?: string, confirmExportPassphrase?: string) => Promise<{ key?: string; format?: 'nsec' | 'ncryptsec' } | null>;
   onDelete: () => void;
   onShowQR: (value: string, title: string) => void;
   onClearError: () => void;
@@ -34,12 +38,16 @@ export function KeyCard({
   unlocking,
   locking,
   renaming,
-  settingPassphrase,
+  encrypting,
+  migrating,
+  exporting,
   onToggleExpand,
   onUnlock,
   onLock,
   onRename,
-  onSetPassphrase,
+  onEncrypt,
+  onMigrate,
+  onExport,
   onDelete,
   onShowQR,
   onClearError,
@@ -51,16 +59,33 @@ export function KeyCard({
   const [isRenaming, setIsRenaming] = useState(false);
   const [editName, setEditName] = useState('');
 
-  // Set passphrase state
-  const [isSettingPassphrase, setIsSettingPassphrase] = useState(false);
-  const [newPassphrase, setNewPassphrase] = useState('');
-  const [confirmPassphrase, setConfirmPassphrase] = useState('');
+
+  // Encrypt state (for unencrypted keys)
+  const [isEncrypting, setIsEncrypting] = useState(false);
+  const [encryptFormat, setEncryptFormat] = useState<'nip49' | 'legacy'>('nip49');
+  const [encryptPassphrase, setEncryptPassphrase] = useState('');
+  const [encryptConfirmPassphrase, setEncryptConfirmPassphrase] = useState('');
+  const [showNip49Tooltip, setShowNip49Tooltip] = useState(false);
+  const [showLegacyTooltip, setShowLegacyTooltip] = useState(false);
+
+  // Migrate state (for legacy-encrypted keys)
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migratePassphrase, setMigratePassphrase] = useState('');
+
+  // Export state
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'nsec' | 'nip49'>('nip49');
+  const [exportNewPassphrase, setExportNewPassphrase] = useState('');
+  const [exportConfirmPassphrase, setExportConfirmPassphrase] = useState('');
 
   // Clipboard feedback
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Bunker URI modal state
   const [showBunkerModal, setShowBunkerModal] = useState(false);
+
+  // Connected apps list state
+  const [showAllApps, setShowAllApps] = useState(false);
 
   const copyToClipboard = async (text: string, field: string) => {
     const success = await copyText(text);
@@ -98,26 +123,104 @@ export function KeyCard({
     }
   };
 
-  const startSetPassphrase = () => {
-    setIsSettingPassphrase(true);
-    setNewPassphrase('');
-    setConfirmPassphrase('');
+  // Encrypt handlers
+  const startEncrypt = () => {
+    setIsEncrypting(true);
+    setEncryptFormat('nip49');
+    setEncryptPassphrase('');
+    setEncryptConfirmPassphrase('');
     onClearError();
   };
 
-  const cancelSetPassphrase = () => {
-    setIsSettingPassphrase(false);
-    setNewPassphrase('');
-    setConfirmPassphrase('');
+  const cancelEncrypt = () => {
+    setIsEncrypting(false);
+    setEncryptPassphrase('');
+    setEncryptConfirmPassphrase('');
   };
 
-  const handleSetPassphrase = async () => {
-    if (!newPassphrase.trim() || newPassphrase !== confirmPassphrase) return;
-    const success = await onSetPassphrase(newPassphrase);
+  const handleEncrypt = async () => {
+    if (!encryptPassphrase.trim() || encryptPassphrase !== encryptConfirmPassphrase) return;
+    const success = await onEncrypt(encryptFormat, encryptPassphrase, encryptConfirmPassphrase);
     if (success) {
-      setIsSettingPassphrase(false);
-      setNewPassphrase('');
-      setConfirmPassphrase('');
+      setIsEncrypting(false);
+      setEncryptPassphrase('');
+      setEncryptConfirmPassphrase('');
+    }
+  };
+
+  // Migrate handlers
+  const startMigrate = () => {
+    setIsMigrating(true);
+    setMigratePassphrase('');
+    onClearError();
+  };
+
+  const cancelMigrate = () => {
+    setIsMigrating(false);
+    setMigratePassphrase('');
+  };
+
+  const handleMigrate = async () => {
+    if (!migratePassphrase.trim()) return;
+    const success = await onMigrate(migratePassphrase);
+    if (success) {
+      setIsMigrating(false);
+      setMigratePassphrase('');
+    }
+  };
+
+  // Export handlers
+  const startExport = () => {
+    setIsExporting(true);
+    setExportFormat('nip49');
+    setExportNewPassphrase('');
+    setExportConfirmPassphrase('');
+    onClearError();
+  };
+
+  const cancelExport = () => {
+    setIsExporting(false);
+    setExportNewPassphrase('');
+    setExportConfirmPassphrase('');
+  };
+
+  const handleExport = async () => {
+    // For NIP-49 export, need new passphrase
+    if (exportFormat === 'nip49') {
+      if (!exportNewPassphrase.trim() || exportNewPassphrase !== exportConfirmPassphrase) return;
+    }
+    // Export only works for online keys (key is in memory, no passphrase needed)
+
+    const result = await onExport(
+      exportFormat,
+      undefined,  // No current passphrase needed for online keys
+      exportFormat === 'nip49' ? exportNewPassphrase : undefined,
+      exportFormat === 'nip49' ? exportConfirmPassphrase : undefined
+    );
+    if (result?.key) {
+      // Create file content with npub and secret
+      const content = [
+        `# Signet Key Export: ${key.name}`,
+        `# Exported: ${new Date().toISOString()}`,
+        '',
+        `npub: ${key.npub}`,
+        `${result.format}: ${result.key}`,
+        '',
+      ].join('\n');
+
+      // Trigger file download
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${key.name}-${result.format}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Close the export form
+      cancelExport();
     }
   };
 
@@ -127,9 +230,14 @@ export function KeyCard({
       setUnlockPassphrase('');
       setIsRenaming(false);
       setEditName('');
-      setIsSettingPassphrase(false);
-      setNewPassphrase('');
-      setConfirmPassphrase('');
+      setIsEncrypting(false);
+      setEncryptPassphrase('');
+      setEncryptConfirmPassphrase('');
+      setIsMigrating(false);
+      setMigratePassphrase('');
+      setIsExporting(false);
+      setExportNewPassphrase('');
+      setExportConfirmPassphrase('');
       onClearError();
     }
     onToggleExpand();
@@ -149,10 +257,6 @@ export function KeyCard({
             key.status === 'locked' ? styles.locked : ''
           }`} />
           <span className={styles.keyName}>{key.name}</span>
-          <span className={`${styles.status} ${styles[key.status]}`}>
-            {key.status === 'locked' && <Lock size={12} />}
-            {key.status}
-          </span>
         </div>
         <div className={styles.keyMeta}>
           {key.npub && (
@@ -261,103 +365,316 @@ export function KeyCard({
                 </div>
               )}
 
-              {!key.isEncrypted && (
-                <div className={styles.detailSection}>
-                  <span className={styles.detailLabel}>
-                    <Shield size={14} />
-                    Security
-                  </span>
-                  {isSettingPassphrase ? (
-                    <div className={styles.setPassphraseForm}>
-                      <input
-                        type="password"
-                        className={styles.input}
-                        value={newPassphrase}
-                        onChange={(e) => setNewPassphrase(e.target.value)}
-                        placeholder="New passphrase"
-                        aria-label="New passphrase"
-                        autoFocus
-                      />
-                      <input
-                        type="password"
-                        className={styles.input}
-                        value={confirmPassphrase}
-                        onChange={(e) => setConfirmPassphrase(e.target.value)}
-                        placeholder="Confirm passphrase"
-                        aria-label="Confirm passphrase"
-                        aria-describedby={newPassphrase && confirmPassphrase && newPassphrase !== confirmPassphrase ? 'passphrase-mismatch-error' : undefined}
-                        aria-invalid={newPassphrase && confirmPassphrase && newPassphrase !== confirmPassphrase ? true : undefined}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && newPassphrase && newPassphrase === confirmPassphrase) {
-                            handleSetPassphrase();
-                          }
-                          if (e.key === 'Escape') {
-                            cancelSetPassphrase();
-                          }
-                        }}
-                      />
-                      {newPassphrase && confirmPassphrase && newPassphrase !== confirmPassphrase && (
-                        <span id="passphrase-mismatch-error" className={styles.passphraseMismatch} role="alert">Passphrases do not match</span>
-                      )}
-                      <div className={styles.setPassphraseActions}>
-                        <button
-                          type="button"
-                          className={styles.saveButton}
-                          onClick={handleSetPassphrase}
-                          disabled={settingPassphrase || !newPassphrase.trim() || newPassphrase !== confirmPassphrase}
-                        >
-                          {settingPassphrase ? 'Saving...' : 'Set Passphrase'}
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.cancelButton}
-                          onClick={cancelSetPassphrase}
-                        >
-                          Cancel
+              {/* Encryption section */}
+              <div className={styles.detailSection}>
+                <span className={styles.detailLabel}>
+                  <Shield size={14} />
+                  Encryption
+                  {key.encryptionFormat && key.encryptionFormat !== 'none' && (
+                    <span className={`${styles.encryptionBadge} ${styles[key.encryptionFormat]}`}>
+                      {key.encryptionFormat === 'nip49' ? 'NIP-49' : 'Legacy'}
+                    </span>
+                  )}
+                </span>
+
+                {/* Unencrypted key - show encrypt form or button */}
+                {!key.isEncrypted && (
+                  <>
+                    {isEncrypting ? (
+                      <div className={styles.encryptForm}>
+                        <div className={styles.radioGroup}>
+                          <label className={styles.radioLabel}>
+                            <input
+                              type="radio"
+                              name="encryptFormat"
+                              value="nip49"
+                              checked={encryptFormat === 'nip49'}
+                              onChange={() => setEncryptFormat('nip49')}
+                              className={styles.radioInput}
+                            />
+                            <span>NIP-49 (Recommended)</span>
+                            <button
+                              type="button"
+                              className={styles.tooltipButton}
+                              onMouseEnter={() => setShowNip49Tooltip(true)}
+                              onMouseLeave={() => setShowNip49Tooltip(false)}
+                              onFocus={() => setShowNip49Tooltip(true)}
+                              onBlur={() => setShowNip49Tooltip(false)}
+                              aria-label="More info about NIP-49"
+                            >
+                              <HelpCircle size={14} />
+                            </button>
+                            {showNip49Tooltip && (
+                              <div className={styles.tooltip}>
+                                <strong>NIP-49 Encryption</strong>
+                                <p>Uses XChaCha20-Poly1305 with scrypt. The ncryptsec format is portable to other Nostr tools.</p>
+                              </div>
+                            )}
+                          </label>
+                          <label className={styles.radioLabel}>
+                            <input
+                              type="radio"
+                              name="encryptFormat"
+                              value="legacy"
+                              checked={encryptFormat === 'legacy'}
+                              onChange={() => setEncryptFormat('legacy')}
+                              className={styles.radioInput}
+                            />
+                            <span>Legacy</span>
+                            <button
+                              type="button"
+                              className={styles.tooltipButton}
+                              onMouseEnter={() => setShowLegacyTooltip(true)}
+                              onMouseLeave={() => setShowLegacyTooltip(false)}
+                              onFocus={() => setShowLegacyTooltip(true)}
+                              onBlur={() => setShowLegacyTooltip(false)}
+                              aria-label="More info about Legacy encryption"
+                            >
+                              <HelpCircle size={14} />
+                            </button>
+                            {showLegacyTooltip && (
+                              <div className={styles.tooltip}>
+                                <strong>Legacy Encryption</strong>
+                                <p>Uses AES-256-GCM with PBKDF2. Signet-specific, not portable.</p>
+                              </div>
+                            )}
+                          </label>
+                        </div>
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={encryptPassphrase}
+                          onChange={(e) => setEncryptPassphrase(e.target.value)}
+                          placeholder="Passphrase"
+                          aria-label="Encryption passphrase"
+                          autoFocus
+                        />
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={encryptConfirmPassphrase}
+                          onChange={(e) => setEncryptConfirmPassphrase(e.target.value)}
+                          placeholder="Confirm passphrase"
+                          aria-label="Confirm encryption passphrase"
+                          aria-invalid={encryptPassphrase && encryptConfirmPassphrase && encryptPassphrase !== encryptConfirmPassphrase ? true : undefined}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && encryptPassphrase && encryptPassphrase === encryptConfirmPassphrase) {
+                              handleEncrypt();
+                            }
+                            if (e.key === 'Escape') cancelEncrypt();
+                          }}
+                        />
+                        {encryptPassphrase && encryptConfirmPassphrase && encryptPassphrase !== encryptConfirmPassphrase && (
+                          <span className={styles.passphraseMismatch} role="alert">Passphrases do not match</span>
+                        )}
+                        <div className={styles.setPassphraseActions}>
+                          <button
+                            type="button"
+                            className={styles.saveButton}
+                            onClick={handleEncrypt}
+                            disabled={encrypting || !encryptPassphrase.trim() || encryptPassphrase !== encryptConfirmPassphrase}
+                          >
+                            {encrypting ? 'Encrypting...' : 'Encrypt Key'}
+                          </button>
+                          <button type="button" className={styles.cancelButton} onClick={cancelEncrypt}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={styles.securityWarning}>
+                        <p>This key is stored unencrypted. Anyone with access to the config file can read it.</p>
+                        <button type="button" className={styles.setPassphraseButton} onClick={startEncrypt}>
+                          <Lock size={14} />
+                          Add Encryption
                         </button>
                       </div>
+                    )}
+                  </>
+                )}
+
+                {/* Legacy encrypted - show migrate option */}
+                {key.isEncrypted && key.encryptionFormat === 'legacy' && (
+                  <>
+                    {isMigrating ? (
+                      <div className={styles.migrateForm}>
+                        <p className={styles.migrateHint}>
+                          Upgrade to NIP-49 encryption for better portability. Enter your current passphrase.
+                        </p>
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={migratePassphrase}
+                          onChange={(e) => setMigratePassphrase(e.target.value)}
+                          placeholder="Current passphrase"
+                          aria-label="Current passphrase for migration"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && migratePassphrase) handleMigrate();
+                            if (e.key === 'Escape') cancelMigrate();
+                          }}
+                        />
+                        <div className={styles.setPassphraseActions}>
+                          <button
+                            type="button"
+                            className={styles.saveButton}
+                            onClick={handleMigrate}
+                            disabled={migrating || !migratePassphrase.trim()}
+                          >
+                            {migrating ? 'Migrating...' : 'Migrate to NIP-49'}
+                          </button>
+                          <button type="button" className={styles.cancelButton} onClick={cancelMigrate}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={styles.migrateInfo}>
+                        <p>Using legacy encryption. Consider upgrading to NIP-49 for portability.</p>
+                        <button type="button" className={styles.migrateButton} onClick={startMigrate}>
+                          <ArrowUpCircle size={14} />
+                          Migrate to NIP-49
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* NIP-49 encrypted - show badge info */}
+                {key.isEncrypted && key.encryptionFormat === 'nip49' && (
+                  <p className={styles.encryptionInfo}>
+                    Using NIP-49 encryption. Key can be exported as portable ncryptsec.
+                  </p>
+                )}
+              </div>
+
+              {/* Export section - for all keys */}
+              <div className={styles.detailSection}>
+                <button
+                  type="button"
+                  className={styles.expandableLabel}
+                  onClick={() => isExporting ? cancelExport() : startExport()}
+                  aria-expanded={isExporting}
+                >
+                  <span className={styles.expandableLabelLeft}>
+                    <Download size={14} />
+                    Export
+                  </span>
+                  <ChevronDown size={14} className={isExporting ? styles.chevronExpanded : ''} />
+                </button>
+                {isExporting && (
+                  <div className={styles.exportForm}>
+                    <div className={styles.radioGroup}>
+                      <label className={styles.radioLabel}>
+                        <input
+                          type="radio"
+                          name="exportFormat"
+                          value="nip49"
+                          checked={exportFormat === 'nip49'}
+                          onChange={() => setExportFormat('nip49')}
+                          className={styles.radioInput}
+                        />
+                        <span>NIP-49 (ncryptsec)</span>
+                      </label>
+                      <label className={styles.radioLabel}>
+                        <input
+                          type="radio"
+                          name="exportFormat"
+                          value="nsec"
+                          checked={exportFormat === 'nsec'}
+                          onChange={() => setExportFormat('nsec')}
+                          className={styles.radioInput}
+                        />
+                        <span>Plain nsec</span>
+                      </label>
                     </div>
-                  ) : (
-                    <div className={styles.securityWarning}>
-                      <p>This key is stored unencrypted. Anyone with access to the config file can read it.</p>
-                      <button
-                        type="button"
-                        className={styles.setPassphraseButton}
-                        onClick={startSetPassphrase}
-                      >
-                        <Lock size={14} />
-                        Set Passphrase
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+
+                    {/* Export passphrase for NIP-49 export */}
+                    {exportFormat === 'nip49' && (
+                      <>
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={exportNewPassphrase}
+                          onChange={(e) => setExportNewPassphrase(e.target.value)}
+                          placeholder="Export passphrase"
+                          aria-label="Passphrase for exported key"
+                          autoFocus
+                        />
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={exportConfirmPassphrase}
+                          onChange={(e) => setExportConfirmPassphrase(e.target.value)}
+                          placeholder="Confirm export passphrase"
+                          aria-label="Confirm export passphrase"
+                          aria-invalid={exportNewPassphrase && exportConfirmPassphrase && exportNewPassphrase !== exportConfirmPassphrase ? true : undefined}
+                        />
+                        {exportNewPassphrase && exportConfirmPassphrase && exportNewPassphrase !== exportConfirmPassphrase && (
+                          <span className={styles.passphraseMismatch} role="alert">Passphrases do not match</span>
+                        )}
+                      </>
+                    )}
+
+                    {exportFormat === 'nsec' && (
+                      <p className={styles.exportWarning}>
+                        Warning: Plain nsec can be read by anyone who sees it.
+                      </p>
+                    )}
+
+                    <button
+                      type="button"
+                      className={styles.saveButton}
+                      onClick={handleExport}
+                      disabled={
+                        exporting ||
+                        (exportFormat === 'nip49' && (!exportNewPassphrase.trim() || exportNewPassphrase !== exportConfirmPassphrase))
+                      }
+                    >
+                      {exporting ? 'Exporting...' : 'Download'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
           {apps.length > 0 && (
             <div className={styles.detailSection}>
-              <span className={styles.detailLabel}>
-                <Users size={14} />
-                Connected Apps
-              </span>
-              <div className={styles.appsList}>
-                {apps.map(app => {
-                  const trustInfo = getTrustLevelInfo(app.trustLevel);
-                  const displayName = app.description || toNpub(app.userPubkey).slice(0, 12) + '...';
-                  return (
-                    <div key={app.id} className={styles.appItem}>
-                      <span className={styles.appName}>{displayName}</span>
-                      <span className={`${styles.appTrust} ${styles[app.trustLevel]}`}>
-                        {trustInfo.label}
-                      </span>
-                      <span className={styles.appRequests}>
-                        {app.requestCount} req
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+              <button
+                type="button"
+                className={styles.expandableLabel}
+                onClick={() => setShowAllApps(!showAllApps)}
+                aria-expanded={showAllApps}
+              >
+                <span className={styles.expandableLabelLeft}>
+                  <Users size={14} />
+                  Connected Apps
+                </span>
+                <span className={styles.expandableLabelRight}>
+                  <span className={styles.countBadge}>{apps.length}</span>
+                  <ChevronDown size={14} className={showAllApps ? styles.chevronExpanded : ''} />
+                </span>
+              </button>
+              {showAllApps && (
+                <div className={styles.appsList}>
+                  {apps.map(app => {
+                    const trustInfo = getTrustLevelInfo(app.trustLevel);
+                    const displayName = app.description || toNpub(app.userPubkey).slice(0, 12) + '...';
+                    return (
+                      <div key={app.id} className={styles.appItem}>
+                        <span className={styles.appName}>{displayName}</span>
+                        <span className={`${styles.appTrust} ${styles[app.trustLevel]}`}>
+                          {trustInfo.label}
+                        </span>
+                        <span className={styles.appRequests}>
+                          {app.requestCount} req
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

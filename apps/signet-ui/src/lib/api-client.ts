@@ -511,3 +511,70 @@ export async function resumeAllApps(): Promise<{
 }> {
   return apiPost('/apps/resume-all');
 }
+
+/**
+ * Encrypt an unencrypted key with a passphrase.
+ */
+export async function encryptKey(
+  keyName: string,
+  encryption: 'nip49' | 'legacy',
+  passphrase: string,
+  confirmPassphrase: string
+): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  return apiPost(`/keys/${encodeURIComponent(keyName)}/encrypt`, {
+    encryption,
+    passphrase,
+    confirmPassphrase,
+  });
+}
+
+/**
+ * Migrate a legacy-encrypted key to NIP-49 format.
+ */
+export async function migrateKeyToNip49(
+  keyName: string,
+  passphrase: string
+): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  return apiPost(`/keys/${encodeURIComponent(keyName)}/migrate`, {
+    passphrase,
+  });
+}
+
+/**
+ * Export a key in nsec or NIP-49 (ncryptsec) format.
+ */
+export async function exportKey(
+  keyName: string,
+  format: 'nsec' | 'nip49',
+  currentPassphrase?: string,
+  exportPassphrase?: string,
+  confirmExportPassphrase?: string
+): Promise<{
+  ok: boolean;
+  key?: string;
+  format?: 'nsec' | 'ncryptsec';
+  error?: string;
+}> {
+  return apiPost(`/keys/${encodeURIComponent(keyName)}/export`, {
+    format,
+    currentPassphrase,
+    exportPassphrase,
+    confirmExportPassphrase,
+  });
+}
+
+/**
+ * Fetch trust scores for arbitrary relay URLs.
+ * Used by NostrConnect modal to show scores for app-specified relays.
+ */
+export async function getRelayTrustScores(relays: string[]): Promise<{
+  scores: Record<string, number | null>;
+}> {
+  return apiPost('/relays/trust-scores', { relays });
+}

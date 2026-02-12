@@ -31,4 +31,9 @@ export interface HealthStatus {
     sseClients: number;
     lastPoolReset: string | null;
     caches?: Record<string, CacheStats>;
+    logBuffer?: {
+        entries: number;
+        maxEntries: number;
+        estimatedKB: number;
+    };
 }

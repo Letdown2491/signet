@@ -75,9 +75,12 @@ object InputValidation {
     /**
      * Validate a passphrase.
      * Note: Empty is allowed (keys can be unencrypted).
+     * When provided, must be at least MIN_LENGTH characters for security.
      */
     fun validatePassphrase(passphrase: String): ValidationResult {
         return when {
+            passphrase.isNotEmpty() && passphrase.length < ValidationConstants.PASSPHRASE_MIN_LENGTH ->
+                ValidationResult.Invalid("Passphrase must be at least ${ValidationConstants.PASSPHRASE_MIN_LENGTH} characters")
             passphrase.length > ValidationConstants.PASSPHRASE_MAX_LENGTH ->
                 ValidationResult.Invalid("Passphrase must be ${ValidationConstants.PASSPHRASE_MAX_LENGTH} characters or less")
             else -> ValidationResult.Valid

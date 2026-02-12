@@ -61,8 +61,8 @@ export async function processRequestWebHandler(
 
         // Get trust level from request body (default to 'reasonable')
         const requestedTrustLevel = request.body.trustLevel;
-        const trustLevel: TrustLevel = VALID_TRUST_LEVELS.includes(requestedTrustLevel)
-            ? requestedTrustLevel
+        const trustLevel: TrustLevel = requestedTrustLevel && VALID_TRUST_LEVELS.includes(requestedTrustLevel as TrustLevel)
+            ? (requestedTrustLevel as TrustLevel)
             : 'reasonable';
 
         // Get alwaysAllow flag from request body (default to false for one-time approval)

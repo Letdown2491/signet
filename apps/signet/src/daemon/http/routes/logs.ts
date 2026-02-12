@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { PreHandlerHook } from 'fastify/types/hooks.js';
 import type { LogLevel, LogsResponse } from '@signet/types';
+import type { PreHandler } from '../types.js';
 import { logBuffer } from '../../lib/log-buffer.js';
 
 interface LogsQueryParams {
@@ -11,7 +11,7 @@ interface LogsQueryParams {
 
 export function registerLogsRoutes(
     fastify: FastifyInstance,
-    preHandler: PreHandlerHook[]
+    preHandler: PreHandler[]
 ): void {
     /**
      * GET /logs

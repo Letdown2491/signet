@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { HealthStatus } from '@signet/types';
 import { apiGet } from '../lib/api-client.js';
-
-// Refresh health status every 30 seconds
-const REFRESH_INTERVAL_MS = 30 * 1000;
+import { useSSESubscription } from '../contexts/ServerEventsContext.js';
+import type { ServerEvent } from './useServerEvents.js';
 
 export type UIHealthStatus = 'healthy' | 'degraded' | 'offline';
 
@@ -19,7 +18,6 @@ export function useHealth(): UseHealthResult {
     const [health, setHealth] = useState<HealthStatus | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const refresh = useCallback(async () => {
         try {
@@ -34,18 +32,27 @@ export function useHealth(): UseHealthResult {
         }
     }, []);
 
+    // Subscribe to SSE events for real-time health updates
+    const handleSSEEvent = useCallback((event: ServerEvent) => {
+        switch (event.type) {
+            case 'health:updated':
+                // Direct update from SSE - no API call needed
+                setHealth(event.health);
+                setError(null);
+                setLoading(false);
+                break;
+            case 'reconnected':
+                // SSE reconnection - fetch to ensure consistency
+                refresh();
+                break;
+        }
+    }, [refresh]);
+
+    useSSESubscription(handleSSEEvent);
+
+    // Initial fetch only - SSE handles updates every 10s
     useEffect(() => {
-        // Initial fetch
         refresh();
-
-        // Auto-refresh every 30 seconds
-        intervalRef.current = setInterval(refresh, REFRESH_INTERVAL_MS);
-
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
-        };
     }, [refresh]);
 
     // Derive UI status from health and error state

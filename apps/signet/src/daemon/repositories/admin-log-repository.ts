@@ -3,6 +3,10 @@ import prisma from '../../db.js';
 export type AdminEventType =
     | 'key_locked'
     | 'key_unlocked'
+    | 'key_encrypted'
+    | 'key_migrated'
+    | 'key_exported'
+    | 'auth_failed'
     | 'app_connected'
     | 'app_suspended'
     | 'app_unsuspended'

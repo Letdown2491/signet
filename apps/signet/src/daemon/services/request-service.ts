@@ -1,4 +1,4 @@
-import type { PendingRequest } from '@signet/types';
+import type { PendingRequest, ApprovalType } from '@signet/types';
 import type { StoredKey } from '../../config/types.js';
 import {
     requestRepository,
@@ -74,7 +74,7 @@ export class RequestService {
             requiresPassword,
             processedAt: record.processedAt?.toISOString() ?? null,
             autoApproved: record.autoApproved,
-            approvalType: record.approvalType ?? undefined,
+            approvalType: (record.approvalType as ApprovalType) ?? undefined,
             appName: record.KeyUser?.description ?? null,
             allowed: record.allowed,
         };

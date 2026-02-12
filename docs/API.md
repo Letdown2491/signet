@@ -1477,6 +1477,9 @@ For reference, these are the NIP-46 methods that appear in requests:
 | `nip44_encrypt` | Encrypt message (NIP-44) |
 | `nip44_decrypt` | Decrypt message (NIP-44) |
 | `ping` | Connection health check |
+| `switch_relays` | Get signer's preferred relay list (requires existing connection) |
+
+**Note:** The `switch_relays` method returns a JSON array of relay URLs. Unlike other methods, it does not require explicit permission grants, but the client must have an existing connection (completed `connect` flow). Unauthenticated clients receive "Not authorized".
 
 ---
 

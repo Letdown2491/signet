@@ -1,7 +1,12 @@
+import type { EncryptionFormat } from '../config/types.js';
+
 /**
  * Key status indicating availability
  */
 export type KeyStatus = 'online' | 'locked' | 'offline';
+
+// Re-export EncryptionFormat for convenience
+export type { EncryptionFormat };
 
 /**
  * Summary of a key for listing
@@ -23,6 +28,8 @@ export interface KeyInfo {
     bunkerUri?: string;
     status: KeyStatus;
     isEncrypted: boolean;
+    /** Encryption format: 'none', 'legacy' (AES-256-GCM), or 'nip49' (ncryptsec) */
+    encryptionFormat: EncryptionFormat;
     userCount: number;
     tokenCount: number;
     requestCount: number;
@@ -48,8 +55,14 @@ export interface KeyUserSummary {
  */
 export interface CreateKeyRequest {
     keyName: string;
-    passphrase?: string;
+    /** The secret to import (nsec1... or ncryptsec1...) */
     nsec?: string;
+    /** Encryption format to use: 'none', 'legacy', or 'nip49' */
+    encryption?: EncryptionFormat;
+    /** Passphrase for encryption (required if encryption is not 'none') */
+    passphrase?: string;
+    /** Passphrase confirmation (server validates match) */
+    confirmPassphrase?: string;
 }
 
 /**

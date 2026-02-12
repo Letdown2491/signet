@@ -67,9 +67,9 @@ object ValidationConstants {
     /** Regex pattern for valid key names (alphanumeric, underscore, hyphen) */
     const val KEY_NAME_PATTERN = "^[a-zA-Z0-9_-]+$"
 
-    /** Minimum passphrase length (0 = optional) */
-    const val PASSPHRASE_MIN_LENGTH = 0
+    /** Minimum passphrase length (when provided, must be at least this long) */
+    const val PASSPHRASE_MIN_LENGTH = 8
 
     /** Maximum passphrase length */
-    const val PASSPHRASE_MAX_LENGTH = 256
+    const val PASSPHRASE_MAX_LENGTH = 128
 }

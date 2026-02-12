@@ -8,6 +8,7 @@ import {
     RATE_LIMIT_MAX_REQUESTS,
     RATE_LIMIT_BLOCK_DURATION_MS,
 } from '../constants.js';
+import { TTLCache } from './ttl-cache.js';
 
 const COOKIE_NAME = 'signet_auth';
 const CSRF_COOKIE_NAME = 'signet_csrf';
@@ -19,20 +20,17 @@ interface RateLimitEntry {
     blockedUntil?: number;
 }
 
-// In-memory rate limit store (consider Redis for production clusters)
-const rateLimitStore = new Map<string, RateLimitEntry>();
+// Rate limit store using TTLCache for automatic cleanup and bounded memory
+// TTL is set to block duration + window to ensure blocked entries persist long enough
+// Max size prevents unbounded growth under high traffic
+const RATE_LIMIT_TTL_MS = RATE_LIMIT_BLOCK_DURATION_MS + RATE_LIMIT_WINDOW_MS;
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
 
-// Cleanup old entries periodically
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of rateLimitStore.entries()) {
-        if (entry.blockedUntil && entry.blockedUntil < now) {
-            rateLimitStore.delete(key);
-        } else if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
-            rateLimitStore.delete(key);
-        }
-    }
-}, 60_000);
+const rateLimitStore = new TTLCache<RateLimitEntry>('rate-limit', {
+    ttlMs: RATE_LIMIT_TTL_MS,
+    maxSize: RATE_LIMIT_MAX_ENTRIES,
+    cleanupIntervalMs: 30_000, // Cleanup every 30 seconds
+});
 
 export interface JwtPayload {
     pubkey: string;

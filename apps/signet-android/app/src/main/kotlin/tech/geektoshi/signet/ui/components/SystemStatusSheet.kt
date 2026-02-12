@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -62,6 +61,7 @@ import tech.geektoshi.signet.ui.theme.BorderDefault
 import tech.geektoshi.signet.ui.theme.Danger
 import tech.geektoshi.signet.ui.theme.SignetPurple
 import tech.geektoshi.signet.ui.theme.Success
+import tech.geektoshi.signet.ui.theme.Teal
 import tech.geektoshi.signet.ui.theme.TextMuted
 import tech.geektoshi.signet.ui.theme.TextPrimary
 import tech.geektoshi.signet.ui.theme.TextSecondary
@@ -358,12 +358,16 @@ fun SystemStatusSheet(
                                         color = TextMuted
                                     )
                                 }
-                                Icon(
-                                    imageVector = if (relay.connected) Icons.Default.CheckCircle else Icons.Default.Error,
-                                    contentDescription = if (relay.connected) "Connected" else "Disconnected",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = if (relay.connected) Success else Danger
-                                )
+                                if (relay.connected) {
+                                    TrustScoreBadge(score = relay.trustScore)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Error,
+                                        contentDescription = "Disconnected",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = Danger
+                                    )
+                                }
                             }
                         }
                     }
@@ -484,6 +488,32 @@ private fun StatItem(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             color = TextPrimary
+        )
+    }
+}
+
+/**
+ * Trust score badge with color based on score thresholds
+ */
+@Composable
+private fun TrustScoreBadge(score: Int?) {
+    val (text, color) = when {
+        score == null -> "?" to TextMuted
+        score >= 80 -> score.toString() to Success
+        score >= 60 -> score.toString() to Teal
+        score >= 40 -> score.toString() to Warning
+        else -> score.toString() to Danger
+    }
+
+    Surface(
+        color = color.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = color
         )
     }
 }

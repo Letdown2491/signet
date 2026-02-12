@@ -1,13 +1,11 @@
 import eslintPluginReact from 'eslint-plugin-react-hooks';
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh';
-import tseslint from '@typescript-eslint/eslint-plugin';
-import tsparser from '@typescript-eslint/parser';
+import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
-export default [
+export default tseslint.config(
   {
     languageOptions: {
-      parser: tsparser,
       parserOptions: {
         ecmaVersion: 'latest',
         sourceType: 'module'
@@ -17,13 +15,18 @@ export default [
       }
     },
     files: ['**/*.ts', '**/*.tsx'],
+    extends: [
+      ...tseslint.configs.recommended,
+    ],
     plugins: {
-      '@typescript-eslint': tseslint,
       'react-hooks': eslintPluginReact,
       'react-refresh': eslintPluginReactRefresh
     },
     rules: {
-      ...tseslint.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_'
+      }],
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }]
@@ -32,4 +35,4 @@ export default [
   {
     ignores: ['dist', 'node_modules']
   }
-];
+);

@@ -94,6 +94,32 @@ export class LogBuffer {
     get size(): number {
         return this.buffer.length;
     }
+
+    /**
+     * Get buffer statistics including estimated memory usage.
+     */
+    getStats(): { entries: number; maxEntries: number; estimatedBytes: number } {
+        let estimatedBytes = 0;
+        for (const entry of this.buffer) {
+            // Base object overhead (~40 bytes)
+            estimatedBytes += 40;
+            // timestamp string
+            estimatedBytes += entry.timestamp.length * 2;
+            // level string
+            estimatedBytes += entry.level.length * 2;
+            // message string
+            estimatedBytes += entry.message.length * 2;
+            // data object (rough estimate)
+            if (entry.data) {
+                estimatedBytes += JSON.stringify(entry.data).length * 2;
+            }
+        }
+        return {
+            entries: this.buffer.length,
+            maxEntries: this.maxSize,
+            estimatedBytes,
+        };
+    }
 }
 
 // Singleton instance for the daemon

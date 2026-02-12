@@ -104,7 +104,7 @@ Both methods result in the same secure connection. Use whichever your app suppor
 
 ## Security
 
-Keys are encrypted with AES-256-GCM (PBKDF2, 600k iterations). API endpoints require JWT auth with CORS and rate limiting. An optional **Inactivity Lock** (Dead Man's Switch) automatically locks all keys and suspends all apps if not reset within a configurable timeframe. Additional, an optional admin npub can be set to allow sending DM commands (NIP-04/NIP-17) to Signet without access to any UI.
+Keys are encrypted with NIP-49 (XChaCha20-Poly1305 with scrypt, recommended) or legacy AES-256-GCM. API endpoints require JWT auth with CORS and rate limiting. An optional **Inactivity Lock** (Dead Man's Switch) automatically locks all keys and suspends all apps if not reset within a configurable timeframe. Additional, an optional admin npub can be set to allow sending DM commands (NIP-04/NIP-17) to Signet without access to any UI.
 
 DO NOT run the daemon on a public machine. We recommend private network access only. Tailscale is preferred and documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). 
 

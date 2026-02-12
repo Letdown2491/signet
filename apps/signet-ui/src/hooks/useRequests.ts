@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useOptimistic, startTransition } from 'react';
 import type { PendingRequest, PendingRequestWire, DisplayRequest, RequestMeta, TrustLevel, RequestFilter } from '@signet/types';
 import { apiGet, apiPost, apiDelete } from '../lib/api-client.js';
 import { buildErrorMessage, formatRelativeTime, toNpub } from '../lib/formatters.js';
@@ -52,6 +52,24 @@ export function useRequests(): UseRequestsResult {
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
 
+  // React 19: Optimistic updates for instant UI feedback
+  type OptimisticAction = { type: 'approve' | 'deny'; id: string };
+  const [optimisticRequests, addOptimistic] = useOptimistic(
+    requests,
+    (state, action: OptimisticAction) => {
+      return state.map(req => {
+        if (req.id === action.id) {
+          return {
+            ...req,
+            allowed: action.type === 'approve' ? true : false,
+            processedAt: new Date().toISOString(),
+          };
+        }
+        return req;
+      });
+    }
+  );
+
   // Password and meta state (sensitive data)
   const [passwords, setPasswords] = useState<Record<string, string>>({});
   const [meta, setMeta] = useState<Record<string, RequestMeta>>({});
@@ -66,9 +84,9 @@ export function useRequests(): UseRequestsResult {
   const filters = useRequestFilters();
   const selection = useRequestSelection();
 
-  // Update now every second
+  // Update now every 5 seconds for TTL display (reduces re-renders by 80%)
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const timer = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(timer);
   }, []);
 
@@ -143,6 +161,7 @@ export function useRequests(): UseRequestsResult {
   }, [filters.filter, fetchRequests]);
 
   // Subscribe to SSE events for real-time updates
+  // Handle events inline to avoid unnecessary API calls
   const handleSSEEvent = useCallback((event: ServerEvent) => {
     // Refresh data on reconnection to ensure consistency
     if (event.type === 'reconnected') {
@@ -150,11 +169,37 @@ export function useRequests(): UseRequestsResult {
       return;
     }
 
-    // Refresh when requests are created, approved, denied, or auto-approved to update the list
-    if (event.type === 'request:created' || event.type === 'request:approved' || event.type === 'request:denied' || event.type === 'request:auto_approved') {
-      refresh();
+    // Handle new request: prepend to list if viewing pending requests
+    if (event.type === 'request:created') {
+      if (filters.filter === 'pending') {
+        const newRequest: PendingRequest = {
+          ...event.request,
+          requiresPassword: Boolean(event.request.requiresPassword),
+        };
+        setRequests(prev => [newRequest, ...prev]);
+      }
+      return;
     }
-  }, [refresh]);
+
+    // Handle approved/denied/expired: remove from pending list
+    if (event.type === 'request:approved' || event.type === 'request:denied' || event.type === 'request:expired') {
+      if (filters.filter === 'pending') {
+        setRequests(prev => prev.filter(r => r.id !== event.requestId));
+      } else {
+        // For other filters (all, approved, denied), refresh to get updated data
+        refresh();
+      }
+      return;
+    }
+
+    // Handle auto-approved: refresh to update the list
+    // Note: auto_approved events don't include request ID, and are rate-limited,
+    // so we refresh to ensure consistency
+    if (event.type === 'request:auto_approved') {
+      refresh();
+      return;
+    }
+  }, [refresh, filters.filter]);
 
   useSSESubscription(handleSSEEvent);
 
@@ -207,6 +252,10 @@ export function useRequests(): UseRequestsResult {
       return;
     }
 
+    // React 19: Instant UI update before API call (wrapped in transition for proper scheduling)
+    startTransition(() => {
+      addOptimistic({ type: 'approve', id });
+    });
     setMeta(prev => ({ ...prev, [id]: { state: 'approving' } }));
 
     try {
@@ -249,6 +298,10 @@ export function useRequests(): UseRequestsResult {
   }, [requests, passwords, refresh]);
 
   const deny = useCallback(async (id: string) => {
+    // React 19: Instant UI update before API call (wrapped in transition for proper scheduling)
+    startTransition(() => {
+      addOptimistic({ type: 'deny', id });
+    });
     setMeta(prev => ({ ...prev, [id]: { state: 'approving' } }));
 
     try {
@@ -269,9 +322,9 @@ export function useRequests(): UseRequestsResult {
     }
   }, [refresh]);
 
-  // Decorate requests with computed fields
+  // Decorate requests with computed fields (using optimistic state for instant feedback)
   const decoratedRequests: DisplayRequest[] = useMemo(() => {
-    return requests.map(request => {
+    return optimisticRequests.map(request => {
       const expires = Date.parse(request.expiresAt);
       const ttl = Number.isFinite(expires)
         ? Math.max(0, Math.round((expires - now) / 1000))
@@ -297,7 +350,7 @@ export function useRequests(): UseRequestsResult {
         approvedAt: request.processedAt ?? undefined
       };
     });
-  }, [requests, now]);
+  }, [optimisticRequests, now]);
 
   // Apply filters and sorting
   const sortedRequests = useMemo(() => {

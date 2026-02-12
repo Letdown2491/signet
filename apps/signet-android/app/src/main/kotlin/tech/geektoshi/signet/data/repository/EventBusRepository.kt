@@ -37,8 +37,10 @@ class EventBusRepository private constructor() {
     private var sseClient: SignetSSEClient? = null
     private var sseJob: Job? = null
     private var currentUrl: String? = null
+    private val connectionLock = Any()
 
     // SharedFlow for broadcasting events - replay 0 means new subscribers don't get old events
+    // Use DROP_OLDEST to prevent unbounded buffer growth under load
     private val _events = MutableSharedFlow<ServerEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
 
@@ -49,6 +51,7 @@ class EventBusRepository private constructor() {
     /**
      * Connect to SSE endpoint. If already connected to the same URL, does nothing.
      * If URL changes, disconnects from old and connects to new.
+     * Thread-safe: uses synchronization to prevent race conditions.
      */
     fun connect(daemonUrl: String) {
         if (daemonUrl.isBlank()) {
@@ -56,24 +59,35 @@ class EventBusRepository private constructor() {
             return
         }
 
-        // Already connected to this URL
-        if (daemonUrl == currentUrl && sseJob?.isActive == true) {
-            return
-        }
+        synchronized(connectionLock) {
+            // Already connected to this URL - check both URL and job status atomically
+            if (daemonUrl == currentUrl && sseJob?.isActive == true) {
+                return
+            }
 
-        // Disconnect from previous if different URL
-        if (currentUrl != null && currentUrl != daemonUrl) {
-            disconnect()
-        }
+            // Disconnect from previous if different URL
+            if (currentUrl != null && currentUrl != daemonUrl) {
+                disconnectInternal()
+            }
 
-        currentUrl = daemonUrl
-        startConnection(daemonUrl)
+            currentUrl = daemonUrl
+            startConnection(daemonUrl)
+        }
     }
 
     /**
      * Disconnect from SSE and clean up resources.
      */
     fun disconnect() {
+        synchronized(connectionLock) {
+            disconnectInternal()
+        }
+    }
+
+    /**
+     * Internal disconnect without lock - must be called within synchronized block.
+     */
+    private fun disconnectInternal() {
         sseJob?.cancel()
         sseJob = null
         sseClient?.close()
