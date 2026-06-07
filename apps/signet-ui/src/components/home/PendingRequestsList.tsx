@@ -3,7 +3,20 @@ import type { DisplayRequest, TrustLevel } from '@signet/types';
 import { getMethodLabel, getKindLabel } from '@signet/types';
 import { ChevronDown, ChevronRight, Check, X, Inbox } from 'lucide-react';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
+import { ConfirmDialog } from '../shared/ConfirmDialog.js';
 import styles from './HomeView.module.css';
+
+interface ApprovalParams {
+  requestId: string;
+  trustLevel?: TrustLevel;
+  alwaysAllow?: boolean;
+  allowKind?: number;
+  appName?: string;
+}
+
+function truncateForPreview(content: string, max = 280): string {
+  return content.length > max ? content.slice(0, max) + '…' : content;
+}
 
 const TRUST_LEVELS: TrustLevel[] = ['paranoid', 'reasonable', 'full'];
 
@@ -13,8 +26,8 @@ interface PendingRequestsListProps {
   appNames: Record<string, string>;
   onPasswordChange: (requestId: string, password: string) => void;
   onAppNameChange: (requestId: string, appName: string) => void;
-  onApprove: (requestId: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => Promise<void>;
-  onDeny: (requestId: string) => Promise<void>;
+  onApprove: (requestId: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => Promise<boolean>;
+  onDeny: (requestId: string) => Promise<boolean>;
   onViewDetails: (request: DisplayRequest) => void;
 }
 
@@ -32,6 +45,8 @@ export function PendingRequestsList({
   const [selectedTrustLevels, setSelectedTrustLevels] = useState<Record<string, TrustLevel>>({});
   const [alwaysAllowFlags, setAlwaysAllowFlags] = useState<Record<string, boolean>>({});
   const [removingItems, setRemovingItems] = useState<Record<string, 'approved' | 'denied'>>({});
+  // Pending "Full trust" grant awaiting explicit confirmation (most dangerous action).
+  const [confirmFullTrust, setConfirmFullTrust] = useState<ApprovalParams | null>(null);
 
   const pendingRequests = requests.filter(r => r.state === 'pending');
 
@@ -119,6 +134,19 @@ export function PendingRequestsList({
                           {request.appName || (request.npub ? <code>{request.npub.slice(0, 20)}...</code> : 'Unknown')}
                         </span>
                       </div>
+                      {request.method === 'sign_event' && request.eventPreview && (
+                        <div className={styles.detailRow}>
+                          <span className={styles.detailLabel}>Signing:</span>
+                          <span className={styles.detailValue}>
+                            {getKindLabel(request.eventPreview.kind)}
+                            {request.eventPreview.content && (
+                              <code className={styles.signPreview}>
+                                {truncateForPreview(request.eventPreview.content)}
+                              </code>
+                            )}
+                          </span>
+                        </div>
+                      )}
                       {request.requiresPassword && (
                         <div className={styles.detailRow}>
                           <span className={styles.detailLabel}>Password:</span>
@@ -190,13 +218,21 @@ export function PendingRequestsList({
                         onClick={() => {
                           const alwaysAllow = request.method !== 'connect' ? alwaysAllowFlags[request.id] : undefined;
                           const allowKind = alwaysAllow && request.method === 'sign_event' ? request.eventPreview?.kind : undefined;
-                          handleApprove(
-                            request.id,
-                            request.method === 'connect' ? getTrustLevel(request.id) : undefined,
+                          const trustLevel = request.method === 'connect' ? getTrustLevel(request.id) : undefined;
+                          const params: ApprovalParams = {
+                            requestId: request.id,
+                            trustLevel,
                             alwaysAllow,
                             allowKind,
-                            request.method === 'connect' ? appNames[request.id] : undefined
-                          );
+                            appName: request.method === 'connect' ? appNames[request.id] : undefined,
+                          };
+                          // Granting Full trust auto-approves all future requests from
+                          // this app — require an explicit confirmation.
+                          if (request.method === 'connect' && trustLevel === 'full') {
+                            setConfirmFullTrust(params);
+                            return;
+                          }
+                          handleApprove(params.requestId, params.trustLevel, params.alwaysAllow, params.allowKind, params.appName);
                         }}
                         disabled={!!removingState}
                       >
@@ -225,6 +261,28 @@ export function PendingRequestsList({
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmFullTrust !== null}
+        title="Grant full trust?"
+        danger
+        confirmLabel="Grant full trust"
+        message={
+          <>
+            Full trust <strong>auto-approves every future request</strong> from this app —
+            including signing any event and decrypting messages — without asking again.
+            Only grant this to apps you completely trust.
+          </>
+        }
+        onConfirm={() => {
+          const params = confirmFullTrust;
+          setConfirmFullTrust(null);
+          if (params) {
+            handleApprove(params.requestId, params.trustLevel, params.alwaysAllow, params.allowKind, params.appName);
+          }
+        }}
+        onCancel={() => setConfirmFullTrust(null)}
+      />
     </section>
   );
 }

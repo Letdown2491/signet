@@ -73,6 +73,15 @@ export interface LocalAddress {
 }
 
 /**
+ * Whether a bind host only accepts connections from the local machine.
+ * Anything else (including 0.0.0.0) accepts connections from the network.
+ */
+export function isLoopbackHost(host: string): boolean {
+    const h = host.trim().toLowerCase();
+    return h === 'localhost' || h === '::1' || h === '127.0.0.1' || h.startsWith('127.');
+}
+
+/**
  * Get local network IPv4 addresses, filtering out loopback and virtual interfaces.
  * Returns addresses that are likely reachable from other devices on the network.
  */

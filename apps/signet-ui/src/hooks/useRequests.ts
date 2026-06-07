@@ -23,8 +23,8 @@ interface UseRequestsResult {
   passwords: Record<string, string>;
   setPassword: (id: string, password: string) => void;
   meta: Record<string, RequestMeta>;
-  approve: (id: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => Promise<void>;
-  deny: (id: string) => Promise<void>;
+  approve: (id: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => Promise<boolean>;
+  deny: (id: string) => Promise<boolean>;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
   // Search and sort
@@ -169,6 +169,13 @@ export function useRequests(): UseRequestsResult {
       return;
     }
 
+    // Unlocking/locking a key changes which requests are live (the relay re-delivers
+    // requests once a key is unlocked); re-sync so the list reflects it immediately.
+    if (event.type === 'key:unlocked' || event.type === 'key:locked') {
+      refresh();
+      return;
+    }
+
     // Handle new request: prepend to list if viewing pending requests
     if (event.type === 'request:created') {
       if (filters.filter === 'pending') {
@@ -239,7 +246,7 @@ export function useRequests(): UseRequestsResult {
   }, []);
 
   // Approval and denial operations
-  const approve = useCallback(async (id: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => {
+  const approve = useCallback(async (id: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string): Promise<boolean> => {
     const request = requests.find(r => r.id === id);
     const requiresPassword = request?.requiresPassword ?? false;
     const password = passwords[id]?.trim() ?? '';
@@ -249,7 +256,7 @@ export function useRequests(): UseRequestsResult {
         ...prev,
         [id]: { state: 'error', message: 'Password required to authorize this request' }
       }));
-      return;
+      return false;
     }
 
     // React 19: Instant UI update before API call (wrapped in transition for proper scheduling)
@@ -289,15 +296,20 @@ export function useRequests(): UseRequestsResult {
       });
 
       await refresh();
+      return true;
     } catch (err) {
       setMeta(prev => ({
         ...prev,
         [id]: { state: 'error', message: buildErrorMessage(err, 'Authorization failed') }
       }));
+      // Reconcile the optimistic "approved" state with server truth, otherwise a
+      // failed approval keeps showing as approved.
+      await refresh();
+      return false;
     }
   }, [requests, passwords, refresh]);
 
-  const deny = useCallback(async (id: string) => {
+  const deny = useCallback(async (id: string): Promise<boolean> => {
     // React 19: Instant UI update before API call (wrapped in transition for proper scheduling)
     startTransition(() => {
       addOptimistic({ type: 'deny', id });
@@ -314,11 +326,15 @@ export function useRequests(): UseRequestsResult {
       setMeta(prev => ({ ...prev, [id]: { state: 'success', message: 'Denied' } }));
 
       await refresh();
+      return true;
     } catch (err) {
       setMeta(prev => ({
         ...prev,
         [id]: { state: 'error', message: buildErrorMessage(err, 'Denial failed') }
       }));
+      // Reconcile optimistic "denied" state with server truth on failure.
+      await refresh();
+      return false;
     }
   }, [refresh]);
 
@@ -377,10 +393,12 @@ export function useRequests(): UseRequestsResult {
     let failed = 0;
 
     for (const id of toApprove) {
-      try {
-        await approve(id, trustLevel);
+      // approve() handles its own errors and reports success via its return value,
+      // so count the actual outcome rather than assuming success.
+      const ok = await approve(id, trustLevel);
+      if (ok) {
         approved++;
-      } catch {
+      } else {
         failed++;
       }
     }

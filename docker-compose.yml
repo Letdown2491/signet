@@ -6,15 +6,23 @@ services:
       dockerfile: apps/signet/Dockerfile
     restart: unless-stopped
     pids_limit: 100
-    mem_limit: 256mb
-    memswap_limit: 256mb
+    # Prisma + Fastify + the relay pool need headroom; 256MB risked OOM kills.
+    mem_limit: 512mb
+    memswap_limit: 512mb
     volumes:
+      # Holds the SQLite DB and signet.json (secrets). The container runs as uid 1000;
+      # ensure this host directory is writable by uid 1000.
       - $HOME/.signet-config:/app/config
     environment:
       DATABASE_URL: ${DATABASE_URL:-file:/app/config/signet.db}
       SIGNET_PORT: ${SIGNET_PORT:-3000}
       SIGNET_HOST: ${SIGNET_HOST:-0.0.0.0}
       EXTERNAL_URL: ${EXTERNAL_URL:-http://localhost:4174}
+    # The web dashboard reaches the daemon over the compose network and does NOT
+    # need this port published. It is exposed here for the Android app, which talks
+    # to the daemon's REST API directly. The daemon has no built-in auth by default,
+    # so restrict who can reach this port (Tailscale ACLs / firewall), or bind it to
+    # a specific interface, e.g.: "${SIGNET_HOST:-127.0.0.1}:${SIGNET_PORT:-3000}:${SIGNET_PORT:-3000}".
     ports:
       - "${SIGNET_PORT:-3000}:${SIGNET_PORT:-3000}"
     healthcheck:

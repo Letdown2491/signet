@@ -1,4 +1,5 @@
 import readline from 'readline';
+import { Writable } from 'stream';
 import { nip19 } from 'nostr-tools';
 import { encryptSecret, encryptNip49, decryptNip49, isNcryptsec } from '../config/keyring.js';
 import { loadConfig, saveConfig } from '../config/config.js';
@@ -11,18 +12,37 @@ type AddKeyOptions = {
     useLegacy?: boolean;
 };
 
-function ask(prompt: string, rl: readline.Interface): Promise<string> {
-    return new Promise((resolve) => rl.question(prompt, resolve));
-}
-
 export async function addKey(options: AddKeyOptions): Promise<void> {
+    // A mutable output stream lets us suppress echo while a passphrase is typed.
+    let muted = false;
     const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout,
+        output: new Writable({
+            write(chunk, _encoding, callback) {
+                if (!muted) process.stdout.write(chunk);
+                callback();
+            },
+        }),
+        terminal: true,
     });
 
+    const ask = (prompt: string): Promise<string> =>
+        new Promise((resolve) => rl.question(prompt, resolve));
+
+    // Prompt for a secret without echoing the typed characters to the terminal.
+    const askHidden = (prompt: string): Promise<string> =>
+        new Promise((resolve) => {
+            process.stdout.write(prompt);
+            muted = true;
+            rl.question('', (value) => {
+                muted = false;
+                process.stdout.write('\n');
+                resolve(value);
+            });
+        });
+
     try {
-        const secret = await ask(`nsec or ncryptsec for ${options.keyName}: `, rl);
+        const secret = await ask(`nsec or ncryptsec for ${options.keyName}: `);
         const trimmedSecret = secret.trim();
 
         // Check if importing an ncryptsec
@@ -34,7 +54,7 @@ export async function addKey(options: AddKeyOptions): Promise<void> {
             }
 
             console.log('Detected NIP-49 encrypted key (ncryptsec).');
-            const passphrase = await ask('Enter passphrase to verify: ', rl);
+            const passphrase = await askHidden('Enter passphrase to verify: ');
 
             // Verify the passphrase by attempting to decrypt
             try {
@@ -79,7 +99,7 @@ export async function addKey(options: AddKeyOptions): Promise<void> {
             console.log('  1. None (auto-unlock on startup, not recommended)');
             console.log('  2. NIP-49 (recommended)');
             console.log('  3. Legacy');
-            const choice = await ask('\nSelect [1-3, default 2]: ', rl);
+            const choice = await ask('\nSelect [1-3, default 2]: ');
             const choiceNum = choice.trim() === '' ? 2 : parseInt(choice.trim(), 10);
 
             if (choiceNum === 1) {
@@ -101,8 +121,8 @@ export async function addKey(options: AddKeyOptions): Promise<void> {
             console.log('Warning: Key will auto-unlock on daemon startup. Consider using encryption.');
         } else {
             // Get passphrase for encryption
-            const passphrase = await ask('Passphrase: ', rl);
-            const confirmPassphrase = await ask('Confirm passphrase: ', rl);
+            const passphrase = await askHidden('Passphrase: ');
+            const confirmPassphrase = await askHidden('Confirm passphrase: ');
 
             if (passphrase !== confirmPassphrase) {
                 console.error('Passphrases do not match.');

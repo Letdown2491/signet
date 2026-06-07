@@ -12,6 +12,28 @@ export interface ConnectionRouteConfig {
     relayService: RelayService;
     getTrustScore?: (url: string) => number | null;
     getTrustScoresForRelays?: (urls: string[]) => Promise<Map<string, number | null>>;
+    updateRelays?: (relays: string[]) => Promise<RelayStatusResponse>;
+}
+
+const MAX_RELAYS = 20;
+
+/** Normalize a relay URL for comparison (trim, drop trailing slash, lowercase). */
+function normalizeRelay(url: string): string {
+    return url.trim().replace(/\/+$/, '').toLowerCase();
+}
+
+/** Validate that a string is a ws:// or wss:// relay URL. */
+function isValidRelayUrl(url: string): boolean {
+    const trimmed = url.trim();
+    if (!/^wss?:\/\/.+/i.test(trimmed)) {
+        return false;
+    }
+    try {
+        new URL(trimmed);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export function registerConnectionRoutes(
@@ -54,6 +76,64 @@ export function registerConnectionRoutes(
         };
 
         return reply.send(response);
+    });
+
+    /**
+     * Add a relay to the configured set.
+     * POST /relays { url }
+     */
+    fastify.post<{ Body: { url?: string } }>('/relays', { preHandler: [...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest<{ Body: { url?: string } }>, reply: FastifyReply) => {
+        if (!config.updateRelays) {
+            return reply.code(503).send({ error: 'Relay management unavailable' });
+        }
+
+        const url = request.body?.url;
+        if (!url || !isValidRelayUrl(url)) {
+            return reply.code(400).send({ error: 'A valid wss:// or ws:// relay URL is required' });
+        }
+
+        const normalized = url.trim().replace(/\/+$/, '');
+        const current = config.relayService.getStatus().map(s => s.url);
+
+        if (current.some(r => normalizeRelay(r) === normalizeRelay(normalized))) {
+            return reply.code(409).send({ error: 'Relay already configured' });
+        }
+        if (current.length >= MAX_RELAYS) {
+            return reply.code(400).send({ error: `Maximum of ${MAX_RELAYS} relays allowed` });
+        }
+
+        const status = await config.updateRelays([...current, normalized]);
+        logger.info('Relay added', { url: normalized });
+        return reply.send(status);
+    });
+
+    /**
+     * Remove a relay from the configured set.
+     * DELETE /relays { url }
+     */
+    fastify.delete<{ Body: { url?: string } }>('/relays', { preHandler: [...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest<{ Body: { url?: string } }>, reply: FastifyReply) => {
+        if (!config.updateRelays) {
+            return reply.code(503).send({ error: 'Relay management unavailable' });
+        }
+
+        const url = request.body?.url;
+        if (!url) {
+            return reply.code(400).send({ error: 'url is required' });
+        }
+
+        const current = config.relayService.getStatus().map(s => s.url);
+        const remaining = current.filter(r => normalizeRelay(r) !== normalizeRelay(url));
+
+        if (remaining.length === current.length) {
+            return reply.code(404).send({ error: 'Relay not found' });
+        }
+        if (remaining.length === 0) {
+            return reply.code(400).send({ error: 'Cannot remove the last relay' });
+        }
+
+        const status = await config.updateRelays(remaining);
+        logger.info('Relay removed', { url });
+        return reply.send(status);
     });
 
     /**

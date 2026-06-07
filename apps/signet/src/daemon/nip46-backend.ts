@@ -20,6 +20,13 @@ const debug = createDebug('signet:nip46');
 // TTL of 10 minutes covers typical health check cycles with margin
 const PROCESSED_EVENTS_TTL_MS = 10 * 60 * 1000;
 const PROCESSED_EVENTS_MAX_SIZE = 5000;
+
+// Replay freshness window. NIP-46 requests are interactive and short-lived, so we
+// reject events whose created_at is implausibly old or in the future. The max age
+// matches the dedup TTL so a captured request can't be replayed after its id is
+// evicted from the dedup cache. Future drift tolerates client clock skew.
+const MAX_EVENT_AGE_SEC = PROCESSED_EVENTS_TTL_MS / 1000;
+const MAX_FUTURE_DRIFT_SEC = 120;
 const processedEvents = new TTLCache<true>('nip46-processed-events', {
     ttlMs: PROCESSED_EVENTS_TTL_MS,
     maxSize: PROCESSED_EVENTS_MAX_SIZE,
@@ -243,6 +250,16 @@ export class Nip46Backend {
             return;
         }
 
+        // Reject stale or future-dated events (replay protection that survives
+        // dedup-cache eviction).
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (event.created_at > nowSec + MAX_FUTURE_DRIFT_SEC ||
+            event.created_at < nowSec - MAX_EVENT_AGE_SEC) {
+            debug('[%s] rejecting event %s with stale/future created_at %d',
+                this.keyName, event.id.slice(0, 8), event.created_at);
+            return;
+        }
+
         // Mark as processed BEFORE we handle it to prevent concurrent duplicates
         processedEvents.set(event.id, true);
 
@@ -270,7 +287,9 @@ export class Nip46Backend {
         } catch (err) {
             const message = toErrorMessage(err);
             logger.error('Error handling NIP-46 method', { key: this.keyName, method, error: message });
-            await this.sendError(id, remotePubkey, message);
+            // Return a generic error to the remote client; internal details
+            // (parse failures, validation messages) stay server-side only.
+            await this.sendError(id, remotePubkey, 'Request failed');
         }
     }
 
@@ -358,6 +377,14 @@ export class Nip46Backend {
         params: string[],
         remotePubkey: string
     ): Promise<string | undefined> {
+        // params[0] is the remote-signer pubkey the client intends to connect to.
+        // Reject mismatches as defense-in-depth (events are already #p-filtered to us).
+        const targetPubkey = params[0];
+        if (targetPubkey && targetPubkey !== this.pubkey) {
+            debug('[%s] connect targeting a different signer pubkey, ignoring', this.keyName);
+            return undefined;
+        }
+
         const providedSecret = params[1];
         const humanPubkey = npubEncode(remotePubkey);
 
@@ -405,7 +432,7 @@ export class Nip46Backend {
      * See: https://github.com/nostr-protocol/nips/pull/2193
      */
     private async handleSwitchRelays(remotePubkey: string): Promise<string | undefined> {
-        // Check if client has an existing connection (KeyUser record)
+        // Check if client has an active connection (KeyUser record)
         const keyUser = await prisma.keyUser.findUnique({
             where: {
                 unique_key_user: {
@@ -413,11 +440,19 @@ export class Nip46Backend {
                     userPubkey: remotePubkey,
                 },
             },
-            select: { id: true },
+            select: { revokedAt: true, suspendedAt: true, suspendUntil: true },
         });
 
         if (!keyUser) {
             debug('[%s] switch_relays: no connection found for %s', this.keyName, npubEncode(remotePubkey));
+            return undefined;
+        }
+
+        // Don't respond to revoked or currently-suspended apps.
+        const suspended = keyUser.suspendedAt !== null &&
+            (keyUser.suspendUntil === null || keyUser.suspendUntil.getTime() > Date.now());
+        if (keyUser.revokedAt !== null || suspended) {
+            debug('[%s] switch_relays: connection revoked/suspended for %s', this.keyName, npubEncode(remotePubkey));
             return undefined;
         }
 

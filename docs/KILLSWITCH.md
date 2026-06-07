@@ -21,7 +21,7 @@ Add the `killSwitch` configuration to your `~/.signet-config/signet.json`:
 {
   "killSwitch": {
     "adminNpub": "npub1youradminnpubhere...",
-    "adminRelays": ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"],
+    "adminRelays": ["wss://nos.lol", "wss://relay.primal.net"],
     "dmType": "NIP04"
   }
 }

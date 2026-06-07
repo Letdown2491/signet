@@ -42,7 +42,7 @@ export type RelayPoolListener = (event: RelayPoolEvent) => void;
  */
 export class RelayPool {
     private pool: SimplePool;
-    private readonly relays: string[];
+    private relays: string[];
     private readonly subscriptions: Map<string, ActiveSubscription> = new Map();
     private readonly relayStatus: Map<string, RelayStatus> = new Map();
     private consecutiveFailures = 0;
@@ -434,6 +434,45 @@ export class RelayPool {
         logger.info('Pool reset complete');
 
         // Emit pool-reset event so SubscriptionManager can recreate subscriptions
+        this.emit({ type: 'pool-reset' });
+        this.onStatusChange?.();
+    }
+
+    /**
+     * Replace the relay set at runtime. Closes the existing pool, rebuilds the
+     * status map for the new relays, and emits 'pool-reset' so the
+     * SubscriptionManager recreates all subscriptions on the new relays.
+     */
+    public setRelays(newRelays: string[]): void {
+        const normalized = Array.from(new Set(newRelays));
+        logger.info('Updating relay set', { from: this.relays.length, to: normalized.length, relays: normalized });
+
+        // Tear down the existing pool (all current relays) before switching.
+        try {
+            this.pool.close(this.relays);
+        } catch (error) {
+            logger.error('Error closing pool during relay update', { error: toErrorMessage(error) });
+        }
+
+        this.relays = normalized;
+
+        // Rebuild the status map so removed relays no longer appear in getStatus().
+        this.relayStatus.clear();
+        for (const url of normalized) {
+            this.relayStatus.set(url, {
+                url,
+                connected: false,
+                lastConnected: null,
+                lastDisconnected: null,
+                lastError: null,
+            });
+        }
+
+        this.pool = new SimplePool();
+        this.consecutiveFailures = 0;
+        this.lastReset = Date.now();
+
+        // Recreate subscriptions on the new relay set and notify listeners.
         this.emit({ type: 'pool-reset' });
         this.onStatusChange?.();
     }

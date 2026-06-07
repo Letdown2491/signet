@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.10.0]
+
+### Added
+- **Relay management in the UI**: add and remove NIP-46 relays from Settings. Changes are validated (`wss://`/`ws://`, max 20, no duplicates), persisted to the config, and applied to the live relay pool — subscriptions are recreated and bunker URIs regenerated without a restart. New `POST`/`DELETE /relays` endpoints (auth + CSRF).
+
+### Security
+- **Authenticated request approval**: `POST /requests/:id` now requires the same auth + CSRF protection as the deny and batch routes
+  - The request ID is delivered to the connecting app via the NIP-46 `auth_url`, so the endpoint was previously approvable by the app itself (or any cross-site page) without credentials
+  - The server-rendered authorization page now issues and submits a CSRF token so it keeps working
+- **Atomic approval/denial**: approve, deny, batch, and the web authorization handler now transition state with an `allowed: null` guard (`updateMany`)
+  - Prevents a TOCTOU race where a late approve could flip an already-denied request, or a request could be double-processed under concurrent calls
+- **Pinned JWT algorithm**: tokens are signed and verified with HS256 only, preventing algorithm-confusion (`none`/alg-swap) attacks
+- **NIP-46 replay protection**: request events whose `created_at` is implausibly old or in the future are rejected
+  - Closes the window where a captured request could be replayed after its event ID was evicted from the dedup cache
+- **Connect target validation**: connect requests naming a different remote-signer pubkey are rejected
+- **Kill switch signature verification**: incoming NIP-04/NIP-17 admin DMs are signature-verified before processing, so a relay cannot inject a forged-pubkey command frame
+- **switch_relays respects revocation**: revoked or suspended apps no longer receive the signer's relay list
+- **Hardened config file permissions**: the config file (which holds `jwtSecret`, the admin secret, and any unencrypted keys) is written owner-only (`0600`) on creation inside a `0700` directory, and a permission failure is surfaced instead of silently ignored
+- **Rate limiting no longer trusts forwarded headers by default**: `X-Forwarded-For`/`X-Real-IP` are only honored when the new `trustProxy` config option is set; otherwise the socket peer IP is used, so a client can't spoof a fresh rate-limit bucket to evade brute-force protection
+- **CORS wildcard refused**: the daemon refuses to start when `allowedOrigins` contains `*` (credentialed CORS with a wildcard would expose the admin API to any website); wildcard subdomain patterns now match true subdomains only, not the apex domain
+- **Dead man's switch minimum timeframe**: enabling or changing the timeframe now enforces a one-hour minimum, preventing an attacker-set short fuse from forcing an immediate panic lockout
+- **Generic NIP-46 errors**: internal error details are no longer relayed back to the remote client
+- **Non-root containers**: the daemon and UI Docker images now run as the unprivileged `node` user (uid 1000) — mount the config volume so it is writable by uid 1000
+- **ACL cache consistency**: updating an app's description now invalidates its ACL cache entry
+- **Exposure warning + safer bind default**: the daemon logs a warning at startup when the API is bound to a non-loopback address with authentication disabled, and the bare bind fallback is now `127.0.0.1` instead of `0.0.0.0`; `docker-compose.yml` documents that the published daemon port should be access-restricted
+- **CLI passphrase masking**: the `add` command no longer echoes passphrases to the terminal
+- **Admin secret case consistency**: the bunker URI now carries the admin secret exactly as stored, so a manually-set mixed-case secret can no longer silently fail to match
+- **Safer connect-app link handling**: an app-supplied `url` in a `nostrconnect://` URI is only rendered as a clickable link when it is an `http(s)` URL; the connect modal also gained a focus trap
+
+### Fixed
+- **Orphaned pending requests after a restart**: pending requests are cleared on daemon startup. A request that outlives the daemon can never complete (the in-memory loop that signs and delivers its response is gone); legitimate requests are re-delivered by the relay once their key is unlocked, so this removes the "zombie" pending items that lingered after a restart.
+- **Request list now refreshes on key unlock/lock**: the pending list re-syncs immediately when a key is unlocked or locked (previously it only updated on request events or a manual refresh), so unlocking a key promptly reflects the requests the relay re-delivers.
+- **Deprecated relay removed on upgrade**: existing configs have `wss://relay.damus.io` stripped from their relay list on load (it rejects NIP-46 / kind-24133 events, so connections through it never complete); the list falls back to defaults if it would otherwise be emptied.
+- **Add-key passphrase fields fighting password managers**: the key-name, nsec, and passphrase/confirm inputs now set `autoComplete` plus the per-manager ignore attributes (`data-protonpass-ignore`, `data-1p-ignore`, `data-lpignore`, `data-bwignore`, `data-form-type="other"`). Proton Pass was hijacking the "Confirm Passphrase" field and resetting it after a couple of keystrokes; these attributes tell the major password managers to leave the fields alone.
+- **Add-key modal could unmount during a background refresh**: the keys page showed a full-page loading spinner whenever a refresh ran while no keys existed yet (`loading && keys.length === 0`), which unmounted the open "Add Key" modal. The keys `loading` flag now represents the initial load only, so SSE/post-mutation refreshes no longer blow away the open modal (also removes general list flicker on refresh).
+- **Daemon unreachable in Docker / env overrides ignored**: the server host, port, and base URL now apply precedence `env var > config file > default`. The config's auto-written `authHost` (`127.0.0.1`) previously shadowed `SIGNET_HOST=0.0.0.0`, so in Docker the daemon bound container-loopback and the UI/host could not reach it (browser showed "Network Error (0)"); `EXTERNAL_URL` was likewise shadowed by `baseUrl`. Resolution is now centralized in a single tested `resolveServerBinding` helper.
+- **Failed approvals no longer appear successful**: optimistic approve/deny state is reconciled with the server when the API call fails, instead of leaving the request showing as approved/denied
+- **Accurate bulk-approval counts**: bulk approval reports real success/failure counts instead of always reporting success
+- **Credentialed requests stay on trusted origins**: state-changing requests (and their CSRF token) are only sent to the configured or same-origin API base, never the `host:3000` fallback guesses
+
+### Operations
+- **Pre-migration database backups**: the daemon snapshots the SQLite database (including any `-wal`/`-shm` sidecars) before running migrations on startup, keeping the newest five backups, so a bad migration can be rolled back
+- **Raised container memory limit**: `docker-compose.yml` `mem_limit` increased from 256MB to 512MB to avoid OOM-killing the daemon under load
+- **Corrected health-check docs**: `docs/DEPLOYMENT.md` now uses the real service name (`signet`), the unauthenticated `/health` endpoint, and tools present in the images (`wget` for the daemon, node `fetch` for the UI)
+
+### Improved
+- **Default relay list**: removed `wss://relay.damus.io` from the default relay sets (daemon, profile lookups, and CLI client).
+- **Signed content shown at approval time**: the Home pending list shows the event kind and a content preview inline, so the signed payload is visible without opening the details modal
+- **Full-trust confirmation**: granting "Full" trust on connect now requires an explicit confirmation, since it auto-approves all future requests from that app
+- **Plaintext nsec export confirmation**: exporting an unencrypted nsec now requires a danger confirmation, matching the key-deletion flow
+
+### Build
+- **Continuous integration**: added a GitHub Actions workflow (install → Prisma generate → typecheck → lint → test → build) on pushes to `main` and pull requests
+- **Daemon linting**: added an ESLint config and `lint` script for the daemon, plus root `lint`/`test` scripts that fan out to both packages (lint is advisory in CI until the existing code is cleaned up against it)
+- **Reproducible UI image**: the UI Dockerfile reuses lockfile-resolved dependencies instead of an unpinned `npm install` that bypassed `pnpm-lock.yaml`, and both Dockerfiles pin pnpm to 9.15.9
+- **Build correctness**: the daemon `build` script chains its steps with `&&` so a failed bundle fails the build; removed a duplicate/malformed `onlyBuiltDependencies` entry in `pnpm-workspace.yaml` and the redundant npm `workspaces` array in the root `package.json`
+- **Accurate `.env.example`**: documents the variables docker-compose and the apps actually read (`SIGNET_PORT`, `SIGNET_HOST`, `UI_PORT`, `UI_HOST`, `DAEMON_URL`, `EXTERNAL_URL`, `DATABASE_URL`) instead of the ignored `AUTH_PORT`
+- Moved ESLint packages from the daemon's runtime `dependencies` to `devDependencies`; the runtime image no longer installs pnpm (migrations run via the local Prisma binary)
+
 ## [1.9.0]
 
 ### Added

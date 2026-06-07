@@ -55,6 +55,10 @@ export async function registerAuthPlugins(
     await fastify.register(fastifyCookie);
     await fastify.register(fastifyJwt, {
         secret: jwtSecret,
+        // Pin the algorithm on both sign and verify to prevent algorithm-confusion
+        // (e.g. "none" or RS/HS swaps). We only ever use the symmetric secret.
+        sign: { algorithm: 'HS256' },
+        verify: { algorithms: ['HS256'] },
         cookie: {
             cookieName: COOKIE_NAME,
             signed: false,
@@ -185,15 +189,21 @@ export function createCsrfMiddleware() {
 
         const cookies = request.cookies as Record<string, string> | undefined;
         const csrfCookie = cookies?.[CSRF_COOKIE_NAME];
-        const csrfHeader = request.headers[CSRF_HEADER_NAME] as string | undefined;
+        // Accept the token from the X-CSRF-Token header (used by the dashboard's
+        // fetch() calls) or from a `_csrf` body field (used by the server-rendered
+        // authorization form, which cannot set custom headers).
+        const headerToken = request.headers[CSRF_HEADER_NAME] as string | undefined;
+        const body = request.body as Record<string, unknown> | undefined;
+        const bodyToken = body && typeof body._csrf === 'string' ? body._csrf : undefined;
+        const csrfToken = headerToken ?? bodyToken;
 
-        if (!csrfCookie || !csrfHeader) {
+        if (!csrfCookie || !csrfToken) {
             reply.code(403).send({ error: 'CSRF token missing' });
             return;
         }
 
         // Use timing-safe comparison to prevent timing attacks
-        if (!timingSafeEqual(csrfCookie, csrfHeader)) {
+        if (!timingSafeEqual(csrfCookie, csrfToken)) {
             reply.code(403).send({ error: 'CSRF token mismatch' });
             return;
         }
@@ -291,12 +301,14 @@ export function isAllowedOrigin(origin: string | undefined, allowedOrigins: stri
             return true;
         }
 
-        // Support wildcard subdomains like *.example.com
+        // Support wildcard subdomains like *.example.com. Match true subdomains
+        // only (foo.example.com) — not the apex (example.com), which would be a
+        // broader grant than the pattern implies.
         if (allowed.startsWith('*.')) {
             const domain = allowed.slice(2);
             try {
                 const originUrl = new URL(origin);
-                if (originUrl.hostname === domain || originUrl.hostname.endsWith('.' + domain)) {
+                if (originUrl.hostname.endsWith('.' + domain)) {
                     return true;
                 }
             } catch {
@@ -309,19 +321,25 @@ export function isAllowedOrigin(origin: string | undefined, allowedOrigins: stri
 }
 
 /**
- * Get client identifier for rate limiting (IP address)
+ * Get client identifier for rate limiting (IP address).
+ *
+ * Forwarded headers (X-Forwarded-For / X-Real-IP) are only consulted when
+ * `trustProxy` is enabled, since they are attacker-controllable otherwise and
+ * could be rotated to evade rate limits. Without a trusted proxy we use the
+ * socket peer address (request.ip).
  */
-function getClientIdentifier(request: FastifyRequest): string {
-    // Try to get the real IP from common proxy headers
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded) {
-        const ip = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
-        return ip.trim();
-    }
+function getClientIdentifier(request: FastifyRequest, trustProxy: boolean): string {
+    if (trustProxy) {
+        const forwarded = request.headers['x-forwarded-for'];
+        if (forwarded) {
+            const ip = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
+            return ip.trim();
+        }
 
-    const realIp = request.headers['x-real-ip'];
-    if (realIp) {
-        return Array.isArray(realIp) ? realIp[0] : realIp;
+        const realIp = request.headers['x-real-ip'];
+        if (realIp) {
+            return Array.isArray(realIp) ? realIp[0] : realIp;
+        }
     }
 
     return request.ip || 'unknown';
@@ -383,12 +401,12 @@ export function checkRateLimit(
 /**
  * Create rate limiting middleware for sensitive endpoints
  */
-export function createRateLimitMiddleware(endpoint: string = 'default') {
+export function createRateLimitMiddleware(endpoint: string = 'default', trustProxy: boolean = false) {
     return async function rateLimitMiddleware(
         request: FastifyRequest,
         reply: FastifyReply
     ): Promise<void> {
-        const identifier = getClientIdentifier(request);
+        const identifier = getClientIdentifier(request, trustProxy);
         const result = checkRateLimit(identifier, endpoint);
 
         if (!result.allowed) {

@@ -5,6 +5,7 @@ import { formatRelativeTime, toNpub } from '../../lib/formatters.js';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
 import { copyToClipboard as copyText } from '../../lib/clipboard.js';
 import { BunkerURIModal } from '../layout/BunkerURIModal.js';
+import { ConfirmDialog } from '../shared/ConfirmDialog.js';
 import styles from './KeysPanel.module.css';
 
 interface KeyCardProps {
@@ -74,6 +75,7 @@ export function KeyCard({
 
   // Export state
   const [isExporting, setIsExporting] = useState(false);
+  const [showNsecExportConfirm, setShowNsecExportConfirm] = useState(false);
   const [exportFormat, setExportFormat] = useState<'nsec' | 'nip49'>('nip49');
   const [exportNewPassphrase, setExportNewPassphrase] = useState('');
   const [exportConfirmPassphrase, setExportConfirmPassphrase] = useState('');
@@ -188,7 +190,14 @@ export function KeyCard({
     // For NIP-49 export, need new passphrase
     if (exportFormat === 'nip49') {
       if (!exportNewPassphrase.trim() || exportNewPassphrase !== exportConfirmPassphrase) return;
+      await performExport();
+      return;
     }
+    // Plain nsec is unencrypted private key material — confirm before writing it to disk.
+    setShowNsecExportConfirm(true);
+  };
+
+  const performExport = async () => {
     // Export only works for online keys (key is in memory, no passphrase needed)
 
     const result = await onExport(
@@ -751,6 +760,25 @@ export function KeyCard({
         open={showBunkerModal}
         keyName={key.name}
         onClose={() => setShowBunkerModal(false)}
+      />
+
+      <ConfirmDialog
+        open={showNsecExportConfirm}
+        title="Export plaintext nsec?"
+        danger
+        confirmLabel="Export nsec"
+        message={
+          <>
+            This downloads the <strong>unencrypted private key</strong> for "{key.name}" to a file.
+            Anyone who reads that file gains full control of the key. Prefer the encrypted
+            NIP-49 export unless you understand the risk.
+          </>
+        }
+        onConfirm={() => {
+          setShowNsecExportConfirm(false);
+          performExport();
+        }}
+        onCancel={() => setShowNsecExportConfirm(false)}
       />
     </div>
   );

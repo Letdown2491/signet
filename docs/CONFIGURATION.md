@@ -10,7 +10,6 @@ All runtime settings live in `signet.json`, located at `~/.signet-config/signet.
     "relays": [
       "wss://relay.nip46.com",
       "wss://relay.primal.net",
-      "wss://relay.damus.io",
       "wss://theforest.nostr1.com",
       "wss://nostr.oxtr.dev"
     ]
@@ -189,7 +188,7 @@ Emergency remote control via Nostr DMs. Allows you to lock keys and suspend apps
 {
   "killSwitch": {
     "adminNpub": "npub1youradminnpubhere...",
-    "adminRelays": ["wss://relay.damus.io", "wss://nos.lol"],
+    "adminRelays": ["wss://relay.primal.net", "wss://nos.lol"],
     "dmType": "NIP17"
   }
 }

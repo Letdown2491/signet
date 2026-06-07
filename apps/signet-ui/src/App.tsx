@@ -397,6 +397,10 @@ function AppContent() {
             notificationPermission={notificationPermission}
             onRequestNotificationPermission={requestNotificationPermission}
             keys={keys.keys}
+            relays={relays.relays}
+            relaysMutating={relays.mutating}
+            onAddRelay={relays.addRelay}
+            onRemoveRelay={relays.removeRelay}
           />
         );
 

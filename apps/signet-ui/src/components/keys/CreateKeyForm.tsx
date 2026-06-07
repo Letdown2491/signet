@@ -100,6 +100,12 @@ export function CreateKeyForm({ creating, onSubmit, onCancel }: CreateKeyFormPro
           onChange={(e) => setKeyName(e.target.value)}
           placeholder="e.g., main-key"
           className={styles.input}
+          autoComplete="off"
+          data-1p-ignore="true"
+          data-lpignore="true"
+          data-bwignore="true"
+          data-protonpass-ignore="true"
+          data-form-type="other"
           required
         />
       </div>
@@ -136,6 +142,12 @@ export function CreateKeyForm({ creating, onSubmit, onCancel }: CreateKeyFormPro
             onChange={(e) => setNsec(e.target.value)}
             placeholder="nsec1... or ncryptsec1..."
             className={styles.input}
+            autoComplete="off"
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-bwignore="true"
+            data-protonpass-ignore="true"
+            data-form-type="other"
             required
           />
           {isNcryptsecImport && (
@@ -250,6 +262,12 @@ export function CreateKeyForm({ creating, onSubmit, onCancel }: CreateKeyFormPro
               onChange={(e) => setPassphrase(e.target.value)}
               placeholder="Enter passphrase"
               className={styles.input}
+              autoComplete="new-password"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-bwignore="true"
+              data-protonpass-ignore="true"
+              data-form-type="other"
               required
             />
           </div>
@@ -266,6 +284,12 @@ export function CreateKeyForm({ creating, onSubmit, onCancel }: CreateKeyFormPro
                 onChange={(e) => setConfirmPassphrase(e.target.value)}
                 placeholder="Confirm passphrase"
                 className={styles.input}
+                autoComplete="new-password"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-bwignore="true"
+                data-protonpass-ignore="true"
+                data-form-type="other"
                 required
               />
             </div>

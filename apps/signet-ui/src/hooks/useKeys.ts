@@ -57,13 +57,17 @@ interface UseKeysResult {
 
 export function useKeys(): UseKeysResult {
     const [keys, setKeys] = useState<KeyInfo[]>([]);
-    const [loading, setLoading] = useState(false);
+    // `loading` represents the *initial* load only. Background refreshes (SSE
+    // events, post-mutation) must not flip it: KeysPanel shows a full-page spinner
+    // while `loading && keys.length === 0`, which would otherwise unmount the open
+    // create-key modal mid-typing (resetting the form and stealing focus) whenever
+    // a refresh lands while the user has no keys yet.
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lockingKeyName, setLockingKeyName] = useState<string | null>(null);
     const [unlockingKeyName, setUnlockingKeyName] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
-        setLoading(true);
         try {
             const response = await apiGet<{ keys: KeyInfo[] }>('/keys');
             setKeys(response.keys);
@@ -71,6 +75,7 @@ export function useKeys(): UseKeysResult {
         } catch (err) {
             setError(buildErrorMessage(err, 'Unable to load keys'));
         } finally {
+            // Only ever clears the initial-load spinner; never re-shown on refresh.
             setLoading(false);
         }
     }, []);

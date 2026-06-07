@@ -128,7 +128,7 @@ Get bunker connection information for NIP-46 clients.
   "npubUri": "bunker://npub1...?relay=wss://...",
   "hexUri": "bunker://hex...?relay=wss://...",
   "relays": ["wss://relay.example.com"],
-  "nostrRelays": ["wss://relay.damus.io"]
+  "nostrRelays": ["wss://relay.primal.net"]
 }
 ```
 
@@ -149,7 +149,7 @@ Get relay connection status.
   "total": 5,
   "relays": [
     {
-      "url": "wss://relay.damus.io",
+      "url": "wss://relay.primal.net",
       "connected": true,
       "lastConnected": "2025-01-15T10:30:00.000Z",
       "lastDisconnected": null
@@ -895,7 +895,7 @@ curl -X POST http://localhost:3000/nostrconnect \
   -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
   -d '{
-    "uri": "nostrconnect://abc123...?relay=wss://relay.damus.io&secret=xyz",
+    "uri": "nostrconnect://abc123...?relay=wss://relay.primal.net&secret=xyz",
     "keyName": "main-key",
     "trustLevel": "reasonable",
     "description": "My Nostr App"

@@ -96,7 +96,6 @@ function buildRelays(defaultsOverride: string[] = []): string[] {
     const defaults = defaultsOverride.length
         ? defaultsOverride
         : [
-              'wss://relay.damus.io',
               'wss://relay.primal.net',
               'wss://nos.lol',
           ];

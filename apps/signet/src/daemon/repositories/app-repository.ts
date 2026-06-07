@@ -82,10 +82,13 @@ export class AppRepository {
     }
 
     async updateDescription(id: number, description: string): Promise<void> {
-        await prisma.keyUser.update({
+        const keyUser = await prisma.keyUser.update({
             where: { id },
             data: { description },
+            select: { keyName: true, userPubkey: true },
         });
+        // Keep the ACL cache consistent with persisted app data.
+        invalidateAclCache(keyUser.keyName, keyUser.userPubkey);
     }
 
     async getRequestCount(keyUserId: number): Promise<number> {

@@ -145,6 +145,7 @@
         {{#if callbackUrl}}
         <input type="hidden" name="callbackUrl" value="{{callbackUrl}}">
         {{/if}}
+        <input type="hidden" name="_csrf" value="{{csrfToken}}">
         <button type="submit" class="approve">Authorize Request</button>
         <button type="button" class="deny" onclick="window.close()">Cancel</button>
     </form>

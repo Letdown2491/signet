@@ -94,6 +94,15 @@ export class ConnectionManager {
         await this.readyPromise;
     }
 
+    /**
+     * Regenerate the bunker connection strings. Call after the configured relay
+     * list changes — resolveConnectionRelays() reads the relays from the config
+     * file, so the new URIs reflect the updated set.
+     */
+    public refreshConnectionInfo(): void {
+        this.writeConnectionStrings();
+    }
+
     public getConnectionInfo(): ConnectionInfo | undefined {
         return this.connectionInfo;
     }
@@ -146,7 +155,10 @@ export class ConnectionManager {
 
     private writeConnectionStrings(): void {
         const relays = this.resolveConnectionRelays();
-        const secret = this.secret?.trim().toLowerCase() || undefined;
+        // Emit the secret exactly as stored. The backend compares it byte-for-byte
+        // (timing-safe), so lowercasing here would make a manually-set mixed-case
+        // admin secret never match.
+        const secret = this.secret?.trim() || undefined;
         const npub = npubEncode(this.pubkey);
 
         const hexUri = this.buildBunkerUri(this.pubkey, relays, secret);

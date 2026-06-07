@@ -479,10 +479,11 @@ Add health checks to detect unresponsive containers:
 
 ```yaml
 services:
-  signet-daemon:
+  signet:
     restart: unless-stopped
+    # /health is unauthenticated; the daemon image ships wget (not curl).
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/dashboard/stats"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null 2>&1 || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -491,8 +492,9 @@ services:
 
   signet-ui:
     restart: unless-stopped
+    # The UI image has neither curl nor wget; use node's built-in fetch.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4174"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4174/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 60s
       timeout: 10s
       retries: 3

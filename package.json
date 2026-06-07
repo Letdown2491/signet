@@ -1,14 +1,10 @@
 {
   "name": "signet-monorepo",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20.19.0"
   },
-  "workspaces": [
-    "apps/signet",
-    "apps/signet-ui",
-    "packages/*"
-  ],
   "scripts": {
     "prepare": "pnpm --filter @signet/types run build",
     "build": "pnpm --filter signet run build",
@@ -18,9 +14,11 @@
     "start:ui": "pnpm --filter signet-ui run start",
     "dev:ui": "pnpm --filter signet-ui run dev",
     "sync-version": "node scripts/sync-version.mjs",
-    "typecheck": "pnpm --filter signet --filter signet-ui run typecheck"
+    "typecheck": "pnpm --filter signet --filter signet-ui run typecheck",
+    "lint": "pnpm --filter signet --filter signet-ui run lint",
+    "test": "pnpm --filter signet --filter signet-ui run test"
   },
-  "version": "1.9.0",
+  "version": "1.10.0",
   "pnpm": {
     "overrides": {
       "http-proxy": "npm:http-proxy-3@^1.23.2"

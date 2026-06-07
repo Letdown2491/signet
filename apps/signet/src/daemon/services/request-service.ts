@@ -44,12 +44,12 @@ export class RequestService {
         return requestRepository.countPending();
     }
 
-    async approve(id: string): Promise<void> {
-        await requestRepository.approve(id);
+    async approve(id: string): Promise<boolean> {
+        return requestRepository.approve(id);
     }
 
-    async deny(id: string): Promise<void> {
-        await requestRepository.deny(id);
+    async deny(id: string): Promise<boolean> {
+        return requestRepository.deny(id);
     }
 
     private toApiResponse(record: RequestRecord, nowMillis: number): PendingRequest {

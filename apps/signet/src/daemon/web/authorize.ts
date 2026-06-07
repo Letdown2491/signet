@@ -3,7 +3,7 @@ import createDebug from 'debug';
 import prisma from '../../db.js';
 import { permitAllRequests, grantPermissionsByTrustLevel, type TrustLevel } from '../lib/acl.js';
 import type { AllowScope } from '../lib/acl.js';
-import { sanitizeCallbackUrl } from '../lib/auth.js';
+import { sanitizeCallbackUrl, generateCsrfToken, setCsrfCookie } from '../lib/auth.js';
 import { getEventService } from '../services/event-service.js';
 import { appService, emitCurrentStats } from '../services/index.js';
 import { VALID_TRUST_LEVELS } from '../constants.js';
@@ -41,9 +41,18 @@ export async function authorizeRequestWebHandler(request: RequestWithId, reply: 
             // Invalid URL, proceed without callback
         }
 
+        // Issue a CSRF token for the form POST. The POST /requests/:id route now
+        // requires CSRF; this same-origin page is the only place that can read the
+        // cookie, so a cross-site page (or connected app that only knows the id)
+        // cannot forge an approval.
+        const csrfToken = generateCsrfToken();
+        const secure = request.protocol === 'https';
+        setCsrfCookie(reply, csrfToken, secure);
+
         return reply.view('/templates/authorizeRequest.handlebar', {
             record,
             callbackUrl,
+            csrfToken,
             authorised: true, // Always authorized - auth handled at route level
         });
     } catch (error) {
@@ -75,14 +84,21 @@ export async function processRequestWebHandler(
         const appName = typeof request.body.appName === 'string' ? request.body.appName.trim() : undefined;
 
         const processedAt = new Date();
-        await prisma.request.update({
-            where: { id: record.id },
+        // Atomic transition: only succeeds if the request is still pending.
+        // Prevents a TOCTOU race (e.g. a late approve flipping an already-denied
+        // request, or double-processing under concurrent calls).
+        const claimed = await prisma.request.updateMany({
+            where: { id: record.id, allowed: null },
             data: {
                 allowed: true,
                 processedAt,
                 approvalType: 'manual',
             },
         });
+
+        if (claimed.count === 0) {
+            throw new Error('Request not found or already processed');
+        }
 
         // For connect requests, use the new trust level system (only if keyName is present)
         if (record.keyName) {

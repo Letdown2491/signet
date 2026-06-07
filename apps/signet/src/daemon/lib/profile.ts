@@ -6,7 +6,6 @@ const debug = createDebug('signet:profile');
 
 const PROFILE_RELAYS = [
     'wss://purplepag.es',
-    'wss://relay.damus.io',
     'wss://relay.nostr.band',
     'wss://relay.primal.net',
     'wss://nos.lol',

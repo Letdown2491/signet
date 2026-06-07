@@ -47,6 +47,8 @@ export interface HttpServerConfig {
     jwtSecret?: string;
     allowedOrigins: string[];
     requireAuth: boolean;
+    /** Trust X-Forwarded-For/X-Real-IP for rate-limit client identification. */
+    trustProxy?: boolean;
     connectionManager: ConnectionManager;
     nostrConfig: NostrConfig;
     keyService: KeyService;
@@ -58,6 +60,7 @@ export interface HttpServerConfig {
     getHealthStatus?: () => HealthStatus;
     getTrustScore?: (url: string) => number | null;
     getTrustScoresForRelays?: (urls: string[]) => Promise<Map<string, number | null>>;
+    updateRelays?: (relays: string[]) => Promise<import('@signet/types').RelayStatusResponse>;
 }
 
 export class HttpServer {
@@ -99,10 +102,17 @@ export class HttpServer {
             logger.warn('No JWT secret configured - authentication will not work');
         }
 
-        // CORS handling with origin validation
+        // CORS handling with origin validation.
+        // We reflect the request Origin and send Access-Control-Allow-Credentials,
+        // which combined with a wildcard ('*') would let ANY site make credentialed
+        // requests to the admin API. Refuse to start in that configuration.
         const allowedOrigins = this.config.allowedOrigins;
         if (allowedOrigins.includes('*')) {
-            logger.warn('CORS is configured with wildcard origin (*) - insecure for production');
+            throw new Error(
+                'Refusing to start: allowedOrigins contains "*". Credentialed CORS with a ' +
+                'wildcard origin would expose the admin API to every website. List explicit ' +
+                'origins (e.g. http://localhost:4174) instead.'
+            );
         }
         this.fastify.addHook('onRequest', async (request, reply) => {
             const origin = request.headers.origin;
@@ -131,8 +141,9 @@ export class HttpServer {
     private async setupRoutes(): Promise<void> {
         const authMiddleware = createAuthMiddleware(this.fastify, this.config.requireAuth);
         const csrfMiddleware = createCsrfMiddleware();
-        const rateLimitAuth = createRateLimitMiddleware('auth');
-        const rateLimitKeys = createRateLimitMiddleware('keys');
+        const trustProxy = this.config.trustProxy ?? false;
+        const rateLimitAuth = createRateLimitMiddleware('auth', trustProxy);
+        const rateLimitKeys = createRateLimitMiddleware('keys', trustProxy);
 
         // Determine if we should use secure cookies (HTTPS)
         const useSecureCookies = this.config.baseUrl?.startsWith('https://') ?? false;
@@ -160,6 +171,7 @@ export class HttpServer {
             relayService: this.config.relayService,
             getTrustScore: this.config.getTrustScore,
             getTrustScoresForRelays: this.config.getTrustScoresForRelays,
+            updateRelays: this.config.updateRelays,
         }, { auth: [authMiddleware], csrf: [csrfMiddleware] });
 
         // Request routes (state-changing, needs CSRF)

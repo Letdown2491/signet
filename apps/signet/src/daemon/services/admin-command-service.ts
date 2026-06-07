@@ -1,4 +1,4 @@
-import { finalizeEvent, type Event } from 'nostr-tools';
+import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools';
 import { decode as nip19Decode } from 'nostr-tools/nip19';
 import { encrypt as nip04Encrypt, decrypt as nip04Decrypt } from 'nostr-tools/nip04';
 import { encrypt as nip44Encrypt, decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44';
@@ -296,6 +296,13 @@ export class AdminCommandService {
                 if (parsed[0] === 'EVENT' && parsed[1] === subId) {
                     const event = parsed[2] as Event;
 
+                    // Verify the signature before trusting event.pubkey. A relay can
+                    // inject an EVENT frame with a forged pubkey and no valid signature.
+                    if (!verifyEvent(event)) {
+                        debug('Kill switch: dropping event %s with invalid signature', event.id?.slice(0, 8));
+                        return;
+                    }
+
                     // Deduplicate: skip if we've already processed this event
                     if (this.processedEventIds.has(event.id)) {
                         debug('Skipping duplicate event %s', event.id.slice(0, 8));
@@ -438,6 +445,12 @@ export class AdminCommandService {
                 const parsed = JSON.parse(msg);
                 if (parsed[0] === 'EVENT' && parsed[1] === subId) {
                     const event = parsed[2] as Event;
+
+                    // Verify the gift-wrap signature before processing.
+                    if (!verifyEvent(event)) {
+                        debug('Kill switch: dropping NIP-17 event %s with invalid signature', event.id?.slice(0, 8));
+                        return;
+                    }
 
                     // Deduplicate
                     if (this.processedEventIds.has(event.id)) {

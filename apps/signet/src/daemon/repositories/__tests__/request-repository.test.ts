@@ -10,6 +10,8 @@ vi.mock('../../../db.js', () => ({
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     keyUser: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -97,11 +99,14 @@ describe('RequestRepository', () => {
   });
 
   describe('approve', () => {
-    it('should update request with allowed=true and processedAt', async () => {
-      await repository.approve('test-request-id');
+    it('should atomically update a pending request with allowed=true and processedAt', async () => {
+      mockPrisma.request.updateMany.mockResolvedValue({ count: 1 });
 
-      expect(mockPrisma.request.update).toHaveBeenCalledWith({
-        where: { id: 'test-request-id' },
+      const result = await repository.approve('test-request-id');
+
+      expect(result).toBe(true);
+      expect(mockPrisma.request.updateMany).toHaveBeenCalledWith({
+        where: { id: 'test-request-id', allowed: null },
         data: {
           allowed: true,
           processedAt: expect.any(Date),
@@ -109,18 +114,50 @@ describe('RequestRepository', () => {
         },
       });
     });
+
+    it('should return false when the request was already processed', async () => {
+      mockPrisma.request.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await repository.approve('test-request-id');
+
+      expect(result).toBe(false);
+    });
   });
 
   describe('deny', () => {
-    it('should update request with allowed=false and processedAt', async () => {
-      await repository.deny('test-request-id');
+    it('should atomically update a pending request with allowed=false and processedAt', async () => {
+      mockPrisma.request.updateMany.mockResolvedValue({ count: 1 });
 
-      expect(mockPrisma.request.update).toHaveBeenCalledWith({
-        where: { id: 'test-request-id' },
+      const result = await repository.deny('test-request-id');
+
+      expect(result).toBe(true);
+      expect(mockPrisma.request.updateMany).toHaveBeenCalledWith({
+        where: { id: 'test-request-id', allowed: null },
         data: {
           allowed: false,
           processedAt: expect.any(Date),
         },
+      });
+    });
+
+    it('should return false when the request was already processed', async () => {
+      mockPrisma.request.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await repository.deny('test-request-id');
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('deleteOrphanedPending', () => {
+    it('deletes all unprocessed (allowed=null) requests and returns the count', async () => {
+      mockPrisma.request.deleteMany.mockResolvedValue({ count: 3 });
+
+      const count = await repository.deleteOrphanedPending();
+
+      expect(count).toBe(3);
+      expect(mockPrisma.request.deleteMany).toHaveBeenCalledWith({
+        where: { allowed: null },
       });
     });
   });

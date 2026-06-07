@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Uses the pnpm version pinned in package.json "packageManager"
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Prisma client is required for the daemon typecheck/build.
+      - name: Generate Prisma client
+        run: pnpm --filter signet run prisma:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Advisory for now: the daemon ESLint config is newly introduced and the
+      # existing code hasn't been cleaned up against it yet. Flip to required once
+      # the backlog is cleared.
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build daemon
+        run: pnpm --filter signet run build
+
+      - name: Build UI
+        run: pnpm --filter signet-ui run build

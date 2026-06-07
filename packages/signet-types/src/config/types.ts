@@ -84,6 +84,13 @@ export interface ConfigFile {
     allowedOrigins?: string[];
     /** Require authentication for API access (default: false for local use) */
     requireAuth?: boolean;
+    /**
+     * Trust X-Forwarded-For / X-Real-IP headers for the client IP used in rate
+     * limiting. Only enable when running behind a trusted reverse proxy that sets
+     * these headers; otherwise clients can spoof them to evade rate limits.
+     * Default: false.
+     */
+    trustProxy?: boolean;
     /** Kill switch configuration for remote admin commands */
     killSwitch?: KillSwitchConfig;
 }

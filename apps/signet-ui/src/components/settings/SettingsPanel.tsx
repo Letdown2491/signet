@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import type { TrustLevel, KeyInfo } from '@signet/types';
+import type { TrustLevel, KeyInfo, RelayStatusResponse } from '@signet/types';
 import { Loader2 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext.js';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
 import { useDeadManSwitch } from '../../hooks/useDeadManSwitch.js';
+import { RelayManager } from './RelayManager.js';
 import styles from './SettingsPanel.module.css';
 
 const TRUST_LEVELS: TrustLevel[] = ['paranoid', 'reasonable', 'full'];
@@ -47,12 +48,20 @@ interface SettingsPanelProps {
   notificationPermission: NotificationPermissionState;
   onRequestNotificationPermission: () => void;
   keys: KeyInfo[];
+  relays: RelayStatusResponse | null;
+  relaysMutating: boolean;
+  onAddRelay: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  onRemoveRelay: (url: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export function SettingsPanel({
   notificationPermission,
   onRequestNotificationPermission,
   keys,
+  relays,
+  relaysMutating,
+  onAddRelay,
+  onRemoveRelay,
 }: SettingsPanelProps) {
   const { settings, updateSettings } = useSettings();
   const deadman = useDeadManSwitch();
@@ -173,6 +182,13 @@ export function SettingsPanel({
           })}
         </div>
       </div>
+
+      <RelayManager
+        relays={relays}
+        mutating={relaysMutating}
+        onAddRelay={onAddRelay}
+        onRemoveRelay={onRemoveRelay}
+      />
 
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Security & Alerts</h3>

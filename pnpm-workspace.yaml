@@ -3,4 +3,6 @@ packages:
   - apps/signet-ui
   - packages/*
 
-onlyBuiltDependencies: '["@prisma/engines", "better-sqlite3"]'
+# Native-build allowlist lives in the root package.json (pnpm.onlyBuiltDependencies).
+# It was previously also declared here as a quoted JSON string, which pnpm does not
+# parse as a list — removed to avoid a second, malformed source of truth.

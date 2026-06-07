@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { FocusTrap } from 'focus-trap-react';
 import type { KeyInfo, TrustLevel } from '@signet/types';
 import { connectViaNostrconnect, generateConnectionToken, getRelayTrustScores } from '../../lib/api-client.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
@@ -293,6 +294,7 @@ export function ConnectAppModal({
   };
 
   return (
+    <FocusTrap focusTrapOptions={{ allowOutsideClick: true, escapeDeactivates: false }}>
     <div className={styles.overlay} onClick={handleClose} onKeyDown={handleKeyDown}>
       <div
         className={styles.modal}
@@ -593,19 +595,27 @@ export function ConnectAppModal({
                             </span>
                           </div>
 
-                          {/* URL */}
+                          {/* URL — only render as a link when it's an http(s) URL,
+                              never a javascript:/data: scheme from the untrusted URI. */}
                           {parsedData.url && (
                             <div className={styles.detailRow}>
                               <span className={styles.detailLabel}>URL</span>
-                              <a
-                                href={parsedData.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.detailLink}
-                              >
-                                <Globe size={12} />
-                                {parsedData.url.replace(/^https?:\/\//, '')}
-                              </a>
+                              {/^https?:\/\//i.test(parsedData.url) ? (
+                                <a
+                                  href={parsedData.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.detailLink}
+                                >
+                                  <Globe size={12} />
+                                  {parsedData.url.replace(/^https?:\/\//, '')}
+                                </a>
+                              ) : (
+                                <span className={styles.detailLink}>
+                                  <Globe size={12} />
+                                  {parsedData.url}
+                                </span>
+                              )}
                             </div>
                           )}
 
@@ -721,5 +731,6 @@ export function ConnectAppModal({
         </div>
       </div>
     </div>
+    </FocusTrap>
   );
 }

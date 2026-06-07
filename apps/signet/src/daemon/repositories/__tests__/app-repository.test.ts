@@ -115,12 +115,18 @@ describe('AppRepository', () => {
   });
 
   describe('updateDescription', () => {
-    it('should update description', async () => {
+    it('should update description and invalidate cache', async () => {
+      mockPrisma.keyUser.update.mockResolvedValue({
+        keyName: 'test-key',
+        userPubkey: 'abc123',
+      });
+
       await repository.updateDescription(1, 'New Description');
 
       expect(mockPrisma.keyUser.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: { description: 'New Description' },
+        select: { keyName: true, userPubkey: true },
       });
     });
   });

@@ -15,6 +15,10 @@ const CHECK_INTERVAL_MS = 60 * 1000;
 // Default timeframe (7 days)
 const DEFAULT_TIMEFRAME_SEC = 7 * 24 * 60 * 60;
 
+// Minimum timeframe (1 hour). Prevents enabling the switch with a tiny fuse that
+// would force a panic lockout almost immediately (recovery then needs the passphrase).
+const MIN_TIMEFRAME_SEC = 60 * 60;
+
 // Warning thresholds (in seconds) - only sent if admin DM is configured
 const WARNING_THRESHOLDS_SEC = [
     7 * 24 * 60 * 60,  // 7 days
@@ -173,6 +177,9 @@ export class DeadManSwitchService {
         }
 
         const timeframe = timeframeSec ?? DEFAULT_TIMEFRAME_SEC;
+        if (!Number.isFinite(timeframe) || timeframe < MIN_TIMEFRAME_SEC) {
+            throw new Error(`Timeframe must be at least ${MIN_TIMEFRAME_SEC / 3600} hour(s)`);
+        }
         const now = Math.floor(Date.now() / 1000);
 
         await Promise.all([
@@ -220,6 +227,10 @@ export class DeadManSwitchService {
     async updateTimeframe(keyName: string, passphrase: string, timeframeSec: number): Promise<void> {
         // Verify passphrase
         this.verifyPassphrase(keyName, passphrase);
+
+        if (!Number.isFinite(timeframeSec) || timeframeSec < MIN_TIMEFRAME_SEC) {
+            throw new Error(`Timeframe must be at least ${MIN_TIMEFRAME_SEC / 3600} hour(s)`);
+        }
 
         const now = Math.floor(Date.now() / 1000);
 

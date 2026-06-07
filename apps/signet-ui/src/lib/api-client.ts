@@ -66,14 +66,15 @@ async function ensureCsrfToken(): Promise<string> {
   const existing = getCsrfTokenFromCookie();
   if (existing) return existing;
 
-  // Fetch sets the cookie as a side effect
-  await callApi('/csrf-token');
+  // Fetch sets the cookie as a side effect. Use trusted bases so the cookie is
+  // set on the same origin the mutation will target.
+  await callApi('/csrf-token', undefined, { trustedOnly: true });
   const token = getCsrfTokenFromCookie();
   if (!token) throw new Error('Failed to obtain CSRF token');
   return token;
 }
 
-const buildApiBases = (): string[] => {
+const buildApiBases = (): { all: string[]; trusted: string[] } => {
   const bases: string[] = [];
   const seen = new Set<string>();
 
@@ -89,12 +90,20 @@ const buildApiBases = (): string[] => {
     bases.push(trimmed);
   };
 
+  // "Trusted" bases are explicitly configured (env) or same-origin. These are the
+  // only places we send credentialed mutations to — the host:port guesses below are
+  // for read-only fallback and must never receive cookies + CSRF tokens, since :3000
+  // may resolve to an unrelated service.
+  const trusted: string[] = [];
+
   const envBase = import.meta.env.VITE_DAEMON_API_URL ?? import.meta.env.VITE_BUNKER_API_URL;
   if (typeof envBase === 'string' && envBase.trim().length > 0) {
     add(envBase.trim());
+    trusted.push(envBase.trim().replace(/\/+$/, ''));
   }
 
   add('');
+  trusted.push('');
 
   if (typeof window !== 'undefined') {
     try {
@@ -119,10 +128,10 @@ const buildApiBases = (): string[] => {
     add('http://localhost:3000');
   }
 
-  return bases;
+  return { all: bases, trusted };
 };
 
-const apiBases = buildApiBases();
+const { all: apiBases, trusted: trustedBases } = buildApiBases();
 
 function composeUrl(base: string, path: string): string {
   if (!base) {
@@ -137,6 +146,12 @@ export interface ApiOptions {
   timeoutMs?: number;
   /** Skip deduplication for this request. */
   skipDedup?: boolean;
+  /**
+   * Restrict the request to "trusted" bases (env-configured + same-origin) only.
+   * Used for credentialed mutations so cookies/CSRF tokens are never sent to the
+   * host:port fallback guesses.
+   */
+  trustedOnly?: boolean;
 }
 
 /**
@@ -165,8 +180,9 @@ export async function callApi(
 ): Promise<Response> {
   const attempts: string[] = [];
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const bases = options?.trustedOnly ? trustedBases : apiBases;
 
-  for (const base of apiBases) {
+  for (const base of bases) {
     const target = composeUrl(base, path);
     const { controller, cleanup } = createTimeoutController(timeoutMs);
 
@@ -270,13 +286,15 @@ async function mutationRequest(
           },
           body: body ? JSON.stringify(body) : undefined,
         },
-        { expectJson: true }
+        // Mutations carry credentials + CSRF token: only send them to trusted
+        // (env/same-origin) bases, never the host:port fallback guesses.
+        { expectJson: true, trustedOnly: true }
       );
       return response;
     } catch (error) {
       // If CSRF failed and not already retrying, refresh token and retry once
       if (!isRetry && error instanceof ApiError && error.isCsrfError) {
-        await callApi('/csrf-token'); // Refresh cookie
+        await callApi('/csrf-token', undefined, { trustedOnly: true }); // Refresh cookie
         // Remove from in-flight before retry to allow retry to be tracked
         inFlightRequests.delete(requestKey);
         return mutationRequest(path, method, body, true);

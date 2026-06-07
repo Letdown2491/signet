@@ -28,8 +28,8 @@ interface HomeViewProps {
   showAutoApproved: boolean;
   onPasswordChange: (requestId: string, password: string) => void;
   onAppNameChange: (requestId: string, appName: string) => void;
-  onApprove: (requestId: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => Promise<void>;
-  onDeny: (requestId: string) => Promise<void>;
+  onApprove: (requestId: string, trustLevel?: TrustLevel, alwaysAllow?: boolean, allowKind?: number, appName?: string) => Promise<boolean>;
+  onDeny: (requestId: string) => Promise<boolean>;
   onViewDetails: (request: DisplayRequest) => void;
   onNavigateToActivity: () => void;
   onNavigateToKeys: () => void;

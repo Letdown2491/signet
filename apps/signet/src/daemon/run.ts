@@ -4,7 +4,8 @@ import { ConnectionManager } from './connection-manager.js';
 import { Nip46Backend, type PermitCallbackParams } from './nip46-backend.js';
 import { RelayPool } from './lib/relay-pool.js';
 import { SubscriptionManager } from './lib/subscription-manager.js';
-import { printServerInfo } from './lib/network.js';
+import { printServerInfo, isLoopbackHost } from './lib/network.js';
+import { resolveServerBinding } from './lib/server-config.js';
 import { requestAuthorization } from './authorize.js';
 import type { DaemonBootstrapConfig } from './types.js';
 import { checkRequestPermission, type RpcMethod, type ApprovalType } from './lib/acl.js';
@@ -36,6 +37,8 @@ import {
 import { requestRepository, logRepository } from './repositories/index.js';
 import { adminLogRepository } from './repositories/admin-log-repository.js';
 import { HttpServer, type HealthStatus } from './http/server.js';
+import { loadConfig, saveConfig } from '../config/config.js';
+import type { RelayStatusResponse } from '@signet/types';
 import prisma from '../db.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -345,6 +348,19 @@ class Daemon {
 
     public async start(): Promise<void> {
         logger.info('Connecting to relays...');
+
+        // Drop any pending requests left over from a previous run. They're orphaned
+        // (the in-memory loop that would sign and deliver their response is gone), so
+        // they can never complete; legitimate ones are re-delivered by the relay once
+        // their key is unlocked.
+        try {
+            const orphaned = await requestRepository.deleteOrphanedPending();
+            if (orphaned > 0) {
+                logger.info('Cleared orphaned pending requests from previous run', { count: orphaned });
+            }
+        } catch (error) {
+            logger.error('Failed to clear orphaned pending requests', { error: toErrorMessage(error) });
+        }
 
         // RelayPool connects lazily, but let's log what we're configured with
         const relayCount = this.pool.getRelays().length;
@@ -663,23 +679,36 @@ class Daemon {
     }
 
     private async startWebAuth(): Promise<void> {
-        // Support both new (SIGNET_*) and legacy (AUTH_*) env var names
-        const portEnv = process.env.SIGNET_PORT ?? process.env.AUTH_PORT;
-        const authPort = this.config.authPort ?? (portEnv ? parseInt(portEnv, 10) : undefined);
+        // Precedence for all three: env var > config file > default. Critically this
+        // lets the container's SIGNET_HOST=0.0.0.0 override the authHost persisted in
+        // signet.json; otherwise the daemon binds container-loopback and is unreachable.
+        const { host, port: authPort, baseUrl } = resolveServerBinding(this.config);
         if (!authPort) {
             logger.info('No authPort configured, HTTP server disabled');
             return;
         }
 
-        const baseUrl = this.config.baseUrl ?? process.env.EXTERNAL_URL ?? process.env.BASE_URL;
+        const requireAuth = this.config.requireAuth ?? false;
+
+        // The daemon has no application-layer authentication when requireAuth is off,
+        // so a non-loopback bind exposes the full admin API to anyone who can reach it.
+        if (!requireAuth && !isLoopbackHost(host)) {
+            logger.warn('Admin API is reachable on a non-loopback address with authentication disabled', {
+                host,
+                port: authPort,
+                hint: 'Restrict access (e.g. Tailscale ACLs / firewall) or enable authentication.',
+            });
+        }
+
         logger.info('Starting HTTP server', { port: authPort });
         this.httpServer = new HttpServer({
             port: authPort,
-            host: this.config.authHost ?? process.env.SIGNET_HOST ?? process.env.AUTH_HOST ?? '0.0.0.0',
+            host,
             baseUrl,
             jwtSecret: this.config.jwtSecret,
             allowedOrigins: this.config.allowedOrigins ?? [],
-            requireAuth: this.config.requireAuth ?? false,
+            requireAuth,
+            trustProxy: this.config.trustProxy ?? false,
             connectionManager: this.connectionManager,
             nostrConfig: this.config.nostr,
             keyService: this.keyService,
@@ -691,6 +720,7 @@ class Daemon {
             getHealthStatus: () => this.getHealthStatus(),
             getTrustScore: (url) => this.trustScoreService.getScore(url),
             getTrustScoresForRelays: (urls) => this.trustScoreService.getScoresForRelays(urls),
+            updateRelays: (relays) => this.updateRelays(relays),
         });
 
         await this.httpServer.start();
@@ -704,11 +734,10 @@ class Daemon {
         });
     }
 
-    private emitRelayStatus(): void {
+    private buildRelayStatusResponse(): RelayStatusResponse {
         const statuses = this.relayService.getStatus();
-        const connected = this.relayService.getConnectedCount();
-        this.eventService.emitRelaysUpdated({
-            connected,
+        return {
+            connected: this.relayService.getConnectedCount(),
             total: statuses.length,
             relays: statuses.map(s => ({
                 url: s.url,
@@ -717,6 +746,37 @@ class Daemon {
                 lastDisconnected: s.lastDisconnected?.toISOString() ?? null,
                 trustScore: this.trustScoreService.getScore(s.url),
             })),
-        });
+        };
+    }
+
+    private emitRelayStatus(): void {
+        this.eventService.emitRelaysUpdated(this.buildRelayStatusResponse());
+    }
+
+    /**
+     * Replace the configured relay set: persist to the config file, apply to the
+     * live relay pool (re-subscribing all backends), regenerate bunker URIs, and
+     * emit the new status. Persisting goes through loadConfig() of the on-disk file
+     * so the daemon's in-memory (decrypted) keys are never written back.
+     */
+    async updateRelays(newRelays: string[]): Promise<RelayStatusResponse> {
+        const normalized = Array.from(new Set(newRelays.map(r => r.trim()).filter(Boolean)));
+        if (normalized.length === 0) {
+            throw new Error('At least one relay is required');
+        }
+
+        // Persist via the on-disk config (which holds the stored, encrypted keys).
+        const fileConfig = await loadConfig(this.config.configFile);
+        fileConfig.nostr.relays = normalized;
+        await saveConfig(this.config.configFile, fileConfig);
+
+        // Update in-memory state and apply to the running daemon.
+        this.config.nostr.relays = normalized;
+        this.pool.setRelays(normalized);
+        this.connectionManager.refreshConnectionInfo();
+
+        logger.info('Relay list updated', { relays: normalized });
+        this.emitRelayStatus();
+        return this.buildRelayStatusResponse();
     }
 }

@@ -103,8 +103,12 @@ export function registerRequestRoutes(
         return authorizeRequestWebHandler(request as RequestWithId, reply);
     });
 
-    // Process request approval (API)
-    fastify.post('/requests/:id', { preHandler: preHandler.rateLimit }, async (request: FastifyRequest, reply: FastifyReply) => {
+    // Process request approval (API + server-rendered auth page).
+    // Must require auth + CSRF like the deny/batch routes: the request id is
+    // delivered to the connecting app via the NIP-46 auth_url, so without these
+    // guards a connected app (or any cross-site page) could approve its own
+    // signing request.
+    fastify.post('/requests/:id', { preHandler: [...preHandler.rateLimit, ...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest, reply: FastifyReply) => {
         return processRequestWebHandler(request as ProcessRequestRequest, reply);
     });
 
@@ -122,13 +126,18 @@ export function registerRequestRoutes(
             return reply.code(400).send({ error: 'Request already processed' });
         }
 
-        await prisma.request.update({
-            where: { id },
+        // Atomic transition guards against a concurrent approve flipping state.
+        const claimed = await prisma.request.updateMany({
+            where: { id, allowed: null },
             data: {
                 allowed: false,
                 processedAt: new Date(),
             },
         });
+
+        if (claimed.count === 0) {
+            return reply.code(400).send({ error: 'Request already processed' });
+        }
 
         // Log the denial (no KeyUser created for denied apps)
         let logId = 0;
@@ -215,16 +224,22 @@ export function registerRequestRoutes(
                     continue;
                 }
 
-                // Approve the request
+                // Approve the request. Atomic transition prevents double-processing
+                // or racing a concurrent deny.
                 const processedAt = new Date();
-                await prisma.request.update({
-                    where: { id: record.id },
+                const claimed = await prisma.request.updateMany({
+                    where: { id: record.id, allowed: null },
                     data: {
                         allowed: true,
                         processedAt,
                         approvalType: 'manual',
                     },
                 });
+
+                if (claimed.count === 0) {
+                    results.push({ id, success: false, error: 'Request already processed' });
+                    continue;
+                }
 
                 // Grant permissions based on request type (only if keyName is present)
                 if (record.keyName) {

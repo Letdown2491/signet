@@ -106,25 +106,36 @@ export class RequestRepository {
         });
     }
 
-    async approve(id: string, approvalType?: ApprovalType): Promise<void> {
-        await prisma.request.update({
-            where: { id },
+    /**
+     * Atomically approve a pending request.
+     * Returns true if this call claimed the transition, false if the request
+     * was missing or already processed (prevents TOCTOU double-processing).
+     */
+    async approve(id: string, approvalType?: ApprovalType): Promise<boolean> {
+        const result = await prisma.request.updateMany({
+            where: { id, allowed: null },
             data: {
                 allowed: true,
                 processedAt: new Date(),
                 approvalType: approvalType ?? 'manual',
             },
         });
+        return result.count > 0;
     }
 
-    async deny(id: string): Promise<void> {
-        await prisma.request.update({
-            where: { id },
+    /**
+     * Atomically deny a pending request.
+     * Returns true if this call claimed the transition, false otherwise.
+     */
+    async deny(id: string): Promise<boolean> {
+        const result = await prisma.request.updateMany({
+            where: { id, allowed: null },
             data: {
                 allowed: false,
                 processedAt: new Date(),
             },
         });
+        return result.count > 0;
     }
 
     async create(data: {
@@ -169,6 +180,19 @@ export class RequestRepository {
                 allowed: null,
                 createdAt: { lt: maxAge },
             },
+        });
+        return result.count;
+    }
+
+    /**
+     * Delete all unprocessed (pending) requests. Used once on daemon startup: a
+     * request that outlives the daemon is orphaned — the in-memory loop that would
+     * sign and deliver its response is gone — so it can never complete. Legitimate
+     * requests are re-delivered by the relay once the key is unlocked.
+     */
+    async deleteOrphanedPending(): Promise<number> {
+        const result = await prisma.request.deleteMany({
+            where: { allowed: null },
         });
         return result.count;
     }
