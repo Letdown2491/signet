@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.1]
+
+### Added
+- **NIP-46 `logout` method**: a connected app can now end its own session. On receiving a `logout` request the daemon revokes the corresponding `KeyUser` (via the standard revoke path: ACL cache invalidation, per-app subscription cleanup, and the live `app:revoked` SSE event) and replies `"ack"`. It is self-scoped (the target is always the requesting client-pubkey, never taken from params) so it needs no approval, and idempotent (acks even when there is no active session). Implements the [NIP-46 logout proposal](https://github.com/nostr-protocol/nips/commit/49a89cd5d26f864c3b805d61f24dbcaefec55fc9); per the spec it is advisory, so it complements rather than replaces admin revoke/suspend.
+- **Logout shows in the activity feed**: because a `logout` arrives from the app over a relay (rather than being performed by the operator in the UI), it is recorded as an auto-approved action so the session end is visible and auditable instead of the app silently vanishing from the connected list. The request details view describes the `logout` operation explicitly.
+
 ## [1.10.0]
 
 ### Added

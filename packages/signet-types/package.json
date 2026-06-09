@@ -1,6 +1,6 @@
 {
   "name": "@signet/types",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Shared TypeScript types for Signet daemon and UI",
   "type": "module",
   "main": "./dist/index.js",

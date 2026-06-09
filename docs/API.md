@@ -1478,8 +1478,11 @@ For reference, these are the NIP-46 methods that appear in requests:
 | `nip44_decrypt` | Decrypt message (NIP-44) |
 | `ping` | Connection health check |
 | `switch_relays` | Get signer's preferred relay list (requires existing connection) |
+| `logout` | End the client's own session (revokes the connection) |
 
 **Note:** The `switch_relays` method returns a JSON array of relay URLs. Unlike other methods, it does not require explicit permission grants, but the client must have an existing connection (completed `connect` flow). Unauthenticated clients receive "Not authorized".
+
+**Note:** The `logout` method lets a client end its own session. It is self-scoped (the target is always the requesting client-pubkey, never taken from params) and requires no permission grant. The signer revokes the corresponding connection — further requests are denied until a new `connect` — and replies `"ack"`. It is advisory per the NIP-46 proposal: the signer does not rely on it being sent, and acks idempotently even if there is no active session. See the [logout proposal](https://github.com/nostr-protocol/nips/commit/49a89cd5d26f864c3b805d61f24dbcaefec55fc9).
 
 ---
 

@@ -114,6 +114,8 @@ export function RequestDetailsModal({
         return 'This decrypts a NIP-44 encrypted message that was encrypted for you.';
       case 'get_public_key':
         return 'This returns your public key (npub). Your public key is not sensitive - it identifies you on Nostr.';
+      case 'logout':
+        return 'The app ended its own session. Its connection has been revoked and it must reconnect before it can make further requests.';
       default:
         return `This performs a "${request.method}" operation. Review the details before approving.`;
     }

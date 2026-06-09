@@ -11,7 +11,7 @@ import { TTLCache } from './lib/ttl-cache.js';
 import prisma from '../db.js';
 import type { RelayPool } from './lib/relay-pool.js';
 import type { SubscriptionManager } from './lib/subscription-manager.js';
-import { getConnectionTokenService } from './services/index.js';
+import { getConnectionTokenService, appService } from './services/index.js';
 
 const debug = createDebug('signet:nip46');
 
@@ -39,7 +39,8 @@ type Nip46Method =
     | 'nip04_encrypt' | 'nip04_decrypt'
     | 'nip44_encrypt' | 'nip44_decrypt'
     | 'ping'
-    | 'switch_relays';
+    | 'switch_relays'
+    | 'logout';
 
 interface Nip46Request {
     id: string;
@@ -326,6 +327,11 @@ export class Nip46Backend {
             return this.handleSwitchRelays(remotePubkey);
         }
 
+        // logout: client ends its own session (self-scoped, no permission required)
+        if (method === 'logout') {
+            return this.handleLogout(id, remotePubkey);
+        }
+
         // Check permissions via callback
         const permitted = await this.permitCallback({
             id,
@@ -459,6 +465,39 @@ export class Nip46Backend {
         const relays = this.pool.getRelays();
         debug('[%s] switch_relays: returning %d relays', this.keyName, relays.length);
         return JSON.stringify(relays);
+    }
+
+    /**
+     * Handle logout request: the client signals it no longer needs the session.
+     * We revoke the corresponding KeyUser so further requests from this
+     * client-pubkey are denied until a new connect re-establishes a session.
+     *
+     * This is a self-scoped courtesy action — the target is always derived from
+     * the request's pubkey, never from params — so it requires no approval.
+     * Per the spec it is advisory (not a security boundary): we ack regardless,
+     * and re-acking is harmless if there is no active session to remove.
+     */
+    private async handleLogout(id: string, remotePubkey: string): Promise<string> {
+        const keyUser = await prisma.keyUser.findUnique({
+            where: {
+                unique_key_user: {
+                    keyName: this.keyName,
+                    userPubkey: remotePubkey,
+                },
+            },
+            select: { id: true, revokedAt: true },
+        });
+
+        if (keyUser && keyUser.revokedAt === null) {
+            debug('[%s] logout: revoking session for %s', this.keyName, npubEncode(remotePubkey));
+            // logoutApp writes the audit entry then revokes (DB revoke + ACL
+            // cache invalidation + subscription cleanup + app:revoked SSE).
+            await appService.logoutApp(keyUser.id, id, this.keyName, remotePubkey);
+        } else {
+            debug('[%s] logout: no active session for %s', this.keyName, npubEncode(remotePubkey));
+        }
+
+        return 'ack';
     }
 
     /**

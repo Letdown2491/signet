@@ -1,8 +1,8 @@
 import type { ConnectedApp, TrustLevel, MethodBreakdown } from '@signet/types';
-import { appRepository } from '../repositories/index.js';
+import { appRepository, requestRepository, logRepository } from '../repositories/index.js';
 import { updateTrustLevel as updateTrustLevelAcl } from '../lib/acl.js';
 import { VALID_TRUST_LEVELS } from '../constants.js';
-import { getEventService } from './event-service.js';
+import { getEventService, emitCurrentStats } from './event-service.js';
 import { getNostrconnectService } from './nostrconnect-service.js';
 
 export class AppService {
@@ -123,6 +123,57 @@ export class AppService {
 
         // Emit event for real-time updates
         getEventService().emitAppRevoked(appId);
+    }
+
+    /**
+     * Handle a client-initiated NIP-46 `logout`: record an audit entry for the
+     * self-service session end, then revoke the app.
+     *
+     * Unlike an admin revoke (which the operator performs in the UI and so can
+     * see happen), a logout arrives from the app over a relay and would
+     * otherwise be invisible — the app would just silently disappear from the
+     * connected list. We log it like an auto-approved action so it shows up in
+     * the activity feed. Idempotent: does nothing if the app is already gone.
+     */
+    async logoutApp(appId: number, requestId: string, keyName: string, remotePubkey: string): Promise<void> {
+        const app = await appRepository.findById(appId);
+        if (!app) {
+            return; // already revoked/removed — nothing to log or do
+        }
+
+        // Audit trail: record the logout as a processed, auto-approved action
+        // (it is self-service — the app is ending its own session).
+        await requestRepository.createAutoApproved({
+            requestId,
+            keyName,
+            method: 'logout',
+            remotePubkey,
+            keyUserId: appId,
+        });
+        const log = await logRepository.create({
+            type: 'approval',
+            method: 'logout',
+            keyUserId: appId,
+            autoApproved: true,
+            keyName,
+            remotePubkey,
+        });
+        getEventService().emitRequestAutoApproved({
+            id: log.id,
+            timestamp: log.timestamp.toISOString(),
+            type: log.type,
+            method: 'logout',
+            keyName,
+            userPubkey: remotePubkey,
+            appName: app.description ?? undefined,
+            autoApproved: true,
+        });
+
+        // End the session (revoke + ACL cache invalidation + subscription
+        // cleanup + app:revoked SSE).
+        await this.revokeApp(appId);
+
+        await emitCurrentStats();
     }
 
     async updateDescription(appId: number, description: string): Promise<void> {
