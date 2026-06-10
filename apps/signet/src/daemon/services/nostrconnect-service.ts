@@ -23,7 +23,7 @@ export interface NostrconnectServiceConfig {
  * Callback for when an app connects via nostrconnect.
  * Used to create per-app relay subscriptions.
  */
-export type OnAppConnectedCallback = (keyName: string, appId: number, relays: string[]) => void;
+export type OnAppConnectedCallback = (keyName: string, appId: number, clientPubkey: string, relays: string[]) => void;
 
 /**
  * Callback for when an app is revoked.
@@ -174,11 +174,13 @@ export class NostrconnectService {
      *
      * @param keyName - The key name
      * @param appId - The KeyUser ID
+     * @param clientPubkey - The app's remote pubkey
      * @param clientRelays - The relays to subscribe to
      */
     public subscribeToClientRelays(
         keyName: string,
         appId: number,
+        clientPubkey: string,
         clientRelays: string[]
     ): void {
         if (!this.onAppConnected) {
@@ -193,7 +195,7 @@ export class NostrconnectService {
         }
 
         debug('creating subscription for app %d on %d relays', appId, clientRelays.length);
-        this.onAppConnected(keyName, appId, clientRelays);
+        this.onAppConnected(keyName, appId, clientPubkey, clientRelays);
     }
 }
 

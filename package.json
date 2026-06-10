@@ -18,7 +18,7 @@
     "lint": "pnpm --filter signet --filter signet-ui run lint",
     "test": "pnpm --filter signet --filter signet-ui run test"
   },
-  "version": "1.10.1",
+  "version": "1.11.0",
   "pnpm": {
     "overrides": {
       "http-proxy": "npm:http-proxy-3@^1.23.2"

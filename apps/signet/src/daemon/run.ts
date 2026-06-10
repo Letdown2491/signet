@@ -39,7 +39,7 @@ import { adminLogRepository } from './repositories/admin-log-repository.js';
 import { HttpServer, type HealthStatus } from './http/server.js';
 import { loadConfig, saveConfig } from '../config/config.js';
 import type { RelayStatusResponse } from '@signet/types';
-import prisma from '../db.js';
+import prisma, { applyDatabasePragmas } from '../db.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -82,6 +82,9 @@ process.on('unhandledRejection', (reason: unknown, _promise: Promise<unknown>) =
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const REQUEST_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const LOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Hard cap on graceful shutdown before forcing exit
+const SHUTDOWN_TIMEOUT_MS = 10 * 1000; // 10 seconds
 
 // Health monitoring constants
 const HEALTH_LOG_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -329,10 +332,13 @@ class Daemon {
         });
 
         // Wire up per-app subscription callbacks
-        nostrconnectService.setOnAppConnected((keyName, appId, relays) => {
+        nostrconnectService.setOnAppConnected((keyName, appId, clientPubkey, relays) => {
             const backend = this.backends.get(keyName);
             if (backend) {
                 backend.addAppSubscription(appId, relays);
+                // Prime the response-relay cache so the first response after connect
+                // doesn't need a DB lookup and never serves a stale relay list.
+                backend.setAppRelays(clientPubkey, relays);
             } else {
                 logger.warn('No backend for key, cannot create subscription', { key: keyName, source: 'nostrconnect' });
             }
@@ -348,6 +354,13 @@ class Daemon {
 
     public async start(): Promise<void> {
         logger.info('Connecting to relays...');
+
+        // Apply SQLite pragmas (WAL etc.) before any query runs in the hot path.
+        try {
+            await applyDatabasePragmas();
+        } catch (error) {
+            logger.warn('Failed to apply database pragmas', { error: toErrorMessage(error) });
+        }
 
         // Drop any pending requests left over from a previous run. They're orphaned
         // (the in-memory loop that would sign and deliver their response is gone), so
@@ -431,8 +444,20 @@ class Daemon {
         // Register signal handlers for graceful shutdown
         const handleShutdown = async (signal: string) => {
             logger.info('Received shutdown signal', { signal });
-            await this.shutdown();
-            process.exit(0);
+            // Watchdog: never let a stuck teardown (e.g. a relay socket that won't
+            // close) hold the process open forever — force exit if shutdown overruns.
+            const watchdog = setTimeout(() => {
+                logger.warn('Graceful shutdown timed out; forcing exit');
+                process.exit(1);
+            }, SHUTDOWN_TIMEOUT_MS);
+            watchdog.unref();
+            try {
+                await this.shutdown();
+                process.exit(0);
+            } catch (error) {
+                logger.error('Error during shutdown', { error: toErrorMessage(error) });
+                process.exit(1);
+            }
         };
 
         process.on('SIGTERM', () => handleShutdown('SIGTERM'));
@@ -651,6 +676,13 @@ class Daemon {
             secretBytes = hexToBytes(secret);
         }
 
+        // If a backend for this key is already running (e.g. an unlock fired while it
+        // was active), stop it first so its subscriptions, rate limiter, and ECDH cache
+        // (and their timers) don't leak behind the replacement.
+        if (this.backends.has(name)) {
+            this.stopKey(name);
+        }
+
         try {
             const backend = new Nip46Backend({
                 keyName: name,
@@ -663,9 +695,46 @@ class Daemon {
 
             backend.start();
             this.backends.set(name, backend);
+            await this.restoreAppSubscriptions(name, backend);
             logger.info('Key online', { key: name });
         } catch (error) {
             logger.error('Failed to start key', { key: name, error: toErrorMessage(error) });
+        }
+    }
+
+    /**
+     * Re-establish per-app relay subscriptions for nostrconnect apps after a
+     * (re)start of the key. These subscriptions are otherwise only created at
+     * connect time, so after a daemon restart or lock/unlock cycle a nostrconnect
+     * app whose relays aren't in the shared pool would be silently unreachable
+     * (its requests arrive on relays the signer no longer listens to).
+     */
+    private async restoreAppSubscriptions(keyName: string, backend: Nip46Backend): Promise<void> {
+        try {
+            const apps = await prisma.keyUser.findMany({
+                where: { keyName, revokedAt: null, nostrconnectRelays: { not: null } },
+                select: { id: true, userPubkey: true, nostrconnectRelays: true },
+            });
+            for (const app of apps) {
+                if (!app.nostrconnectRelays) continue;
+                try {
+                    const relays = JSON.parse(app.nostrconnectRelays) as string[];
+                    if (Array.isArray(relays) && relays.length > 0) {
+                        backend.addAppSubscription(app.id, relays);
+                        // Prime the response-relay cache so post-restart responses
+                        // don't each incur a DB lookup.
+                        backend.setAppRelays(app.userPubkey, relays);
+                    }
+                } catch (err) {
+                    logger.warn('Skipping app subscription with unparseable relays', {
+                        key: keyName,
+                        appId: app.id,
+                        error: toErrorMessage(err),
+                    });
+                }
+            }
+        } catch (error) {
+            logger.error('Failed to restore app subscriptions', { key: keyName, error: toErrorMessage(error) });
         }
     }
 
@@ -690,13 +759,28 @@ class Daemon {
 
         const requireAuth = this.config.requireAuth ?? false;
 
-        // The daemon has no application-layer authentication when requireAuth is off,
-        // so a non-loopback bind exposes the full admin API to anyone who can reach it.
-        if (!requireAuth && !isLoopbackHost(host)) {
-            logger.warn('Admin API is reachable on a non-loopback address with authentication disabled', {
+        // Application-layer JWT authentication is not implemented: no route mints a
+        // token, so enabling requireAuth would simply 401 every request (a silent
+        // lockout). Signet is designed for private-network deployment and relies on
+        // network isolation for access control. Fail loudly rather than appear to
+        // offer an auth layer that does not exist.
+        if (requireAuth) {
+            throw new Error(
+                'requireAuth is set to true, but application-layer authentication (JWT login) is ' +
+                'not implemented in this build — it would lock out all access. Signet is designed ' +
+                'for private-network deployment: secure it with network isolation (loopback bind, ' +
+                'Tailscale ACLs, or a firewall) and set requireAuth to false. See docs/SECURITY.md.',
+            );
+        }
+
+        // With auth disabled (the only supported mode), a non-loopback bind exposes the
+        // full admin API to anyone who can reach it — fine behind a private network, but
+        // worth a loud warning in case the bind was not intended.
+        if (!isLoopbackHost(host)) {
+            logger.warn('Admin API is reachable on a non-loopback address with no authentication', {
                 host,
                 port: authPort,
-                hint: 'Restrict access (e.g. Tailscale ACLs / firewall) or enable authentication.',
+                hint: 'Ensure access is restricted to a private network (Tailscale ACLs / firewall / loopback).',
             });
         }
 

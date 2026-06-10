@@ -8,6 +8,18 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Security headers. The dashboard can approve signing requests, so it must not be
+// framable: a malicious page the operator visits could otherwise iframe the dashboard
+// (reachable on loopback/LAN) and clickjack an "Approve". This is a browser-origin
+// attack that network isolation does not mitigate, hence defended here.
+app.use((_req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
 // Support both new (UI_*) and legacy (PORT/HOST) env var names
 const port = Number.parseInt(process.env.UI_PORT ?? process.env.PORT ?? '4174', 10);
 const host = process.env.UI_HOST ?? process.env.HOST ?? '0.0.0.0';
@@ -15,10 +27,13 @@ const daemonUrl = process.env.DAEMON_URL ?? 'http://localhost:3000';
 
 // Shared error handler for proxies
 const onProxyError = (err, req, res) => {
+  // Log the detail server-side; don't leak the internal daemon address/port or
+  // connection state (e.g. "connect ECONNREFUSED 127.0.0.1:3000") to the client.
+  console.error('Proxy error:', err instanceof Error ? err.message : err);
   if (res.headersSent) return;
   res.status(502).json({
     ok: false,
-    error: `Proxy error: ${err instanceof Error ? err.message : 'unknown error'}`
+    error: 'Unable to reach the Signet daemon.'
   });
 };
 

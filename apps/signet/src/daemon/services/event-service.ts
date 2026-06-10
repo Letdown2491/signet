@@ -267,26 +267,48 @@ export function setEventService(service: EventService): void {
  * Debounced to prevent spamming clients when multiple operations happen in quick succession.
  */
 let statsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let statsFirstDeferredAt = 0;
 const STATS_DEBOUNCE_MS = 150;
+// Cap how long sustained activity can keep deferring the emit. A pure trailing
+// debounce that resets on every call would never fire while events arrive faster than
+// the debounce interval, starving the dashboard of updates during a burst.
+const STATS_MAX_WAIT_MS = 1000;
+
+async function doEmitStats(): Promise<void> {
+    try {
+        const dashboardService = getDashboardService();
+        const eventService = getEventService();
+        const stats = await dashboardService.getStats();
+        eventService.emitStatsUpdated(stats);
+    } catch (error) {
+        // Log but don't throw - stats emission is not critical
+        debug('Failed to emit current stats: %O', error);
+    }
+}
 
 export async function emitCurrentStats(): Promise<void> {
-    // Clear any pending emission
+    const now = Date.now();
+    if (statsDebounceTimer === null) {
+        statsFirstDeferredAt = now;
+    }
+
+    // If we've been deferring for the max wait, emit now instead of resetting again.
+    if (now - statsFirstDeferredAt >= STATS_MAX_WAIT_MS) {
+        if (statsDebounceTimer) {
+            clearTimeout(statsDebounceTimer);
+            statsDebounceTimer = null;
+        }
+        await doEmitStats();
+        return;
+    }
+
+    // Otherwise (re)schedule the trailing emission.
     if (statsDebounceTimer) {
         clearTimeout(statsDebounceTimer);
     }
-
-    // Schedule new emission after debounce period
-    statsDebounceTimer = setTimeout(async () => {
+    statsDebounceTimer = setTimeout(() => {
         statsDebounceTimer = null;
-        try {
-            const dashboardService = getDashboardService();
-            const eventService = getEventService();
-            const stats = await dashboardService.getStats();
-            eventService.emitStatsUpdated(stats);
-        } catch (error) {
-            // Log but don't throw - stats emission is not critical
-            debug('Failed to emit current stats: %O', error);
-        }
+        void doEmitStats();
     }, STATS_DEBOUNCE_MS);
 }
 

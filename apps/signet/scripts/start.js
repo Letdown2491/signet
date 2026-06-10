@@ -64,7 +64,10 @@ function runMigrations() {
     });
 
     if (result.status !== 0) {
-        console.warn('Migrations exited with a non-zero status.');
+        // Don't launch the daemon against a schema that may not match the Prisma
+        // client — every query would then fail at runtime while the process looks alive.
+        console.error('Migrations failed; aborting startup.');
+        process.exit(result.status ?? 1);
     }
 }
 
@@ -78,6 +81,16 @@ const daemon = spawn('node', ['./dist/index.js', ...args], {
     env: process.env,
 });
 
-daemon.on('exit', (code) => {
-    process.exit(code ?? 0);
+daemon.on('exit', (code, signal) => {
+    process.exit(code ?? (signal ? 1 : 0));
 });
+
+// Forward termination signals so the daemon shuts down gracefully when this
+// launcher is the process that receives SIGTERM/SIGINT (e.g. as a container PID 1).
+for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+        if (!daemon.killed) {
+            daemon.kill(signal);
+        }
+    });
+}

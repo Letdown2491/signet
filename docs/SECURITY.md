@@ -19,9 +19,11 @@ Every time you start Signet, you must enter the passphrase to decrypt the key. W
 
 Signet generates its own private key, which is used for NIP-46 bunker communication. If this key is compromised, no user key material is at risk.
 
-Administration is performed via the web UI or Android app, both of which require JWT authentication. The UI should be secured via network-level access control through VPN/WireGuard/Tailscale, firewall rules, or reverse proxy authentication. For emergency situations when you can't access the UI, the [kill switch](KILLSWITCH.md) allows remote control via Nostr DMs.
+Administration is performed via the web UI or Android app. **Signet has no application-layer login of its own — access control is enforced at the network layer.** The daemon is designed for private-network deployment only: bind it to loopback, or restrict access through a VPN/WireGuard/Tailscale ACL, firewall rules, or a reverse proxy that authenticates. For emergency situations when you can't access the UI, the [kill switch](KILLSWITCH.md) allows remote control via Nostr DMs.
 
 We recommend running Signet on a locally trusted machine behind a VPN.
+
+> **Note on `requireAuth`:** The config exposes a `requireAuth` flag, but JWT login is **not implemented** — no endpoint issues a token. Setting `requireAuth: true` would lock out all access, so the daemon refuses to start in that mode and tells you to rely on network isolation instead. Leave `requireAuth: false` (the default) and secure the network path.
 
 ## NIP-46 (Nostr Connect)
 
@@ -33,13 +35,9 @@ The REST API provides management functionality for the web dashboard. It impleme
 
 ### Authentication
 
-All sensitive endpoints require JWT (JSON Web Token) authentication:
+The API does **not** currently perform application-layer authentication. Access must be restricted at the network layer (see "Signet's admin key" above). The codebase contains JWT scaffolding (HMAC-SHA256, `jwtSecret` in config, HTTP-only same-site cookies) and CORS/CSRF/rate-limit hooks that take effect *if* a login flow is added, but no endpoint issues a token today and `requireAuth` cannot be enabled.
 
-- Tokens are signed using HMAC-SHA256 with a 256-bit secret (`jwtSecret` in config)
-- Tokens expire after 7 days
-- Tokens are transmitted via HTTP-only, secure, same-site cookies
-
-Protected endpoints include:
+The following endpoints would be the JWT-protected surface once a login flow exists, and are the sensitive endpoints to keep behind your network boundary:
 - `GET /connection` - Bunker connection info
 - `GET /keys` - List all keys
 - `POST /keys` - Create new keys

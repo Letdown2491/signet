@@ -504,40 +504,46 @@ export async function grantPermissionsByTrustLevel(
     trustLevel: TrustLevel,
     description?: string
 ): Promise<number> {
-    // Create or update KeyUser with trust level
-    const keyUser = await prisma.keyUser.upsert({
-        where: { unique_key_user: { keyName, userPubkey: remotePubkey } },
-        update: { trustLevel, description: description ?? undefined },
-        create: { keyName, userPubkey: remotePubkey, trustLevel, description },
-    });
-
-    // Always grant connect permission explicitly
-    await prisma.signingCondition.create({
-        data: {
-            keyUserId: keyUser.id,
-            allowed: true,
-            method: 'connect',
-        },
-    });
-
-    // For 'full' trust, also grant explicit permissions for sensitive operations
-    // (sign_event and ping will be auto-approved by trust level check anyway)
-    if (trustLevel === 'full') {
-        await prisma.signingCondition.createMany({
-            data: [
-                { keyUserId: keyUser.id, allowed: true, method: 'nip04_encrypt' },
-                { keyUserId: keyUser.id, allowed: true, method: 'nip04_decrypt' },
-                { keyUserId: keyUser.id, allowed: true, method: 'nip44_encrypt' },
-                { keyUserId: keyUser.id, allowed: true, method: 'nip44_decrypt' },
-                { keyUserId: keyUser.id, allowed: true, method: 'sign_event', kind: 'all' },
-            ],
+    // Persist the KeyUser and its permission rows atomically: a crash between the
+    // upsert and the condition writes must not leave an app with a trust level but no
+    // (or partial) permission rows.
+    const keyUserId = await prisma.$transaction(async (tx) => {
+        const keyUser = await tx.keyUser.upsert({
+            where: { unique_key_user: { keyName, userPubkey: remotePubkey } },
+            update: { trustLevel, description: description ?? undefined },
+            create: { keyName, userPubkey: remotePubkey, trustLevel, description },
         });
-    }
 
-    // Invalidate cache since permissions changed
+        // Always grant connect permission explicitly
+        await tx.signingCondition.create({
+            data: {
+                keyUserId: keyUser.id,
+                allowed: true,
+                method: 'connect',
+            },
+        });
+
+        // For 'full' trust, also grant explicit permissions for sensitive operations
+        // (sign_event and ping will be auto-approved by trust level check anyway)
+        if (trustLevel === 'full') {
+            await tx.signingCondition.createMany({
+                data: [
+                    { keyUserId: keyUser.id, allowed: true, method: 'nip04_encrypt' },
+                    { keyUserId: keyUser.id, allowed: true, method: 'nip04_decrypt' },
+                    { keyUserId: keyUser.id, allowed: true, method: 'nip44_encrypt' },
+                    { keyUserId: keyUser.id, allowed: true, method: 'nip44_decrypt' },
+                    { keyUserId: keyUser.id, allowed: true, method: 'sign_event', kind: 'all' },
+                ],
+            });
+        }
+
+        return keyUser.id;
+    });
+
+    // Invalidate cache since permissions changed (after the transaction commits)
     invalidateAclCache(keyName, remotePubkey);
 
-    return keyUser.id;
+    return keyUserId;
 }
 
 /**
@@ -547,59 +553,67 @@ export async function updateTrustLevel(
     keyUserId: number,
     trustLevel: TrustLevel
 ): Promise<void> {
-    const keyUser = await prisma.keyUser.update({
-        where: { id: keyUserId },
-        data: { trustLevel },
-        select: { keyName: true, userPubkey: true },
-    });
-
-    // When downgrading from full trust, remove explicit permissions that were
-    // auto-granted. These would otherwise bypass trust level checks.
-    if (trustLevel === 'paranoid' || trustLevel === 'reasonable') {
-        // Remove sign_event with kind 'all' (granted at full trust)
-        await prisma.signingCondition.deleteMany({
-            where: {
-                keyUserId,
-                method: 'sign_event',
-                kind: 'all',
-                allowed: true,
-            },
+    // Update the trust level and reconcile the permission rows atomically. A crash
+    // mid-sequence must not leave e.g. a 'paranoid' app still holding the full-trust
+    // sign_event/kind:'all' condition — that condition is checked *before* trust level
+    // in checkRequestPermission, so it would silently keep auto-approving everything.
+    const keyUser = await prisma.$transaction(async (tx) => {
+        const ku = await tx.keyUser.update({
+            where: { id: keyUserId },
+            data: { trustLevel },
+            select: { keyName: true, userPubkey: true },
         });
-    }
 
-    if (trustLevel === 'paranoid') {
-        // Also remove NIP-04/NIP-44 encrypt/decrypt permissions (granted at full trust)
-        await prisma.signingCondition.deleteMany({
-            where: {
-                keyUserId,
-                method: {
-                    in: ['nip04_encrypt', 'nip04_decrypt', 'nip44_encrypt', 'nip44_decrypt'],
+        // When downgrading from full trust, remove explicit permissions that were
+        // auto-granted. These would otherwise bypass trust level checks.
+        if (trustLevel === 'paranoid' || trustLevel === 'reasonable') {
+            // Remove sign_event with kind 'all' (granted at full trust)
+            await tx.signingCondition.deleteMany({
+                where: {
+                    keyUserId,
+                    method: 'sign_event',
+                    kind: 'all',
+                    allowed: true,
                 },
-                allowed: true,
-            },
-        });
-    }
-
-    // If upgrading to full trust, add encrypt/decrypt permissions for NIP-04
-    // (NIP-44 is already auto-approved at reasonable trust)
-    if (trustLevel === 'full') {
-        const existingEncrypt = await prisma.signingCondition.findFirst({
-            where: { keyUserId, method: 'nip04_encrypt', allowed: true },
-        });
-        if (!existingEncrypt) {
-            await prisma.signingCondition.createMany({
-                data: [
-                    { keyUserId, allowed: true, method: 'nip04_encrypt' },
-                    { keyUserId, allowed: true, method: 'nip04_decrypt' },
-                    { keyUserId, allowed: true, method: 'nip44_encrypt' },
-                    { keyUserId, allowed: true, method: 'nip44_decrypt' },
-                    { keyUserId, allowed: true, method: 'sign_event', kind: 'all' },
-                ],
             });
         }
-    }
 
-    // Invalidate cache since trust level changed
+        if (trustLevel === 'paranoid') {
+            // Also remove NIP-04/NIP-44 encrypt/decrypt permissions (granted at full trust)
+            await tx.signingCondition.deleteMany({
+                where: {
+                    keyUserId,
+                    method: {
+                        in: ['nip04_encrypt', 'nip04_decrypt', 'nip44_encrypt', 'nip44_decrypt'],
+                    },
+                    allowed: true,
+                },
+            });
+        }
+
+        // If upgrading to full trust, add encrypt/decrypt permissions for NIP-04
+        // (NIP-44 is already auto-approved at reasonable trust)
+        if (trustLevel === 'full') {
+            const existingEncrypt = await tx.signingCondition.findFirst({
+                where: { keyUserId, method: 'nip04_encrypt', allowed: true },
+            });
+            if (!existingEncrypt) {
+                await tx.signingCondition.createMany({
+                    data: [
+                        { keyUserId, allowed: true, method: 'nip04_encrypt' },
+                        { keyUserId, allowed: true, method: 'nip04_decrypt' },
+                        { keyUserId, allowed: true, method: 'nip44_encrypt' },
+                        { keyUserId, allowed: true, method: 'nip44_decrypt' },
+                        { keyUserId, allowed: true, method: 'sign_event', kind: 'all' },
+                    ],
+                });
+            }
+        }
+
+        return ku;
+    });
+
+    // Invalidate cache since trust level changed (after the transaction commits)
     invalidateAclCache(keyUser.keyName, keyUser.userPubkey);
 }
 

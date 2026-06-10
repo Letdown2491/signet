@@ -12,11 +12,17 @@ import {
     POLL_TIMEOUT_MS,
     POLL_MULTIPLIER,
     REQUEST_EXPIRY_MS,
+    MAX_PENDING_AUTHORIZATIONS,
 } from './constants.js';
 
 const debug = createDebug('signet:authorize');
 
 let cachedBaseUrl: string | null | undefined;
+
+// Number of authorizations currently awaiting a manual decision. Bounded by
+// MAX_PENDING_AUTHORIZATIONS to cap memory/timer growth and relay amplification under
+// an unauthenticated connect flood.
+let pendingAuthorizations = 0;
 
 function serialiseParam(payload?: string | Event): string | undefined {
     if (!payload) {
@@ -209,18 +215,30 @@ export async function requestAuthorization(
     method: string,
     payload?: string | Event
 ): Promise<string | undefined> {
-    const record = await persistRequest(keyName, requestId, remotePubkey, method, payload);
-    const baseUrl = await resolveBaseUrl(connectionManager);
-
-    if (!baseUrl) {
-        throw new Error('No baseUrl configured - web authorization required');
+    // Admission control: reject before persisting a row or publishing an auth_url so a
+    // flood of unknown-pubkey connects can't grow memory/timers or amplify relay traffic.
+    if (pendingAuthorizations >= MAX_PENDING_AUTHORIZATIONS) {
+        debug('Rejecting authorization: %d pending exceeds cap', pendingAuthorizations);
+        throw new Error('Too many pending authorizations');
     }
 
-    const url = buildRequestUrl(baseUrl, record.id);
+    pendingAuthorizations++;
+    try {
+        const record = await persistRequest(keyName, requestId, remotePubkey, method, payload);
+        const baseUrl = await resolveBaseUrl(connectionManager);
 
-    // Ensure relay connections are active before sending auth_url
-    await connectionManager.ensureConnected();
-    await connectionManager.sendResponse(requestId, remotePubkey, 'auth_url', undefined, url);
+        if (!baseUrl) {
+            throw new Error('No baseUrl configured - web authorization required');
+        }
 
-    return await awaitWebDecision(record.id);
+        const url = buildRequestUrl(baseUrl, record.id);
+
+        // Ensure relay connections are active before sending auth_url
+        await connectionManager.ensureConnected();
+        await connectionManager.sendResponse(requestId, remotePubkey, 'auth_url', undefined, url);
+
+        return await awaitWebDecision(record.id);
+    } finally {
+        pendingAuthorizations--;
+    }
 }

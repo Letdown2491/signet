@@ -80,7 +80,7 @@ export class LogRepository {
                 type,
                 COUNT(*) as count
             FROM Log
-            WHERE timestamp >= datetime('now', '-24 hours')
+            WHERE unixepoch(timestamp) >= unixepoch('now', '-24 hours')
             GROUP BY hour, type
             ORDER BY hour ASC
         `;

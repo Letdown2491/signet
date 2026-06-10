@@ -20,11 +20,19 @@ import { toErrorMessage } from '../lib/errors.js';
 const PROCESSED_EVENT_TTL_MS = 60 * 60 * 1000;
 // Max processed events to track (prevents unbounded growth)
 const PROCESSED_EVENT_MAX_SIZE = 10_000;
+// Reject admin commands whose timestamp is outside this window (seconds).
+// The `since` relay filter is advisory only (relays are untrusted and the
+// in-memory dedup cache resets on restart / 1h TTL), so a freshness check on
+// the *signed* timestamp is what actually prevents replay of captured commands.
+const COMMAND_MAX_AGE_SEC = 60;
 
-// Reconnection backoff settings
+// Reconnection backoff settings. The kill switch is an emergency security control,
+// so we never stop trying to reconnect to an admin relay — we cap the *delay*, not the
+// number of attempts. (Previously it gave up after ~10 retries / ~9.5 min, silently
+// disabling the kill switch on a relay for the rest of the daemon's uptime.)
 const RECONNECT_BASE_DELAY_MS = 5_000;      // Start with 5s
 const RECONNECT_MAX_DELAY_MS = 60_000;      // Max 60s between retries
-const RECONNECT_MAX_RETRIES = 10;           // Max retries before giving up on a relay
+const RECONNECT_BACKOFF_MAX_EXP = 4;        // Cap the exponent (2^4 * 5s = 80s -> clamped to 60s)
 
 const debug = createDebug('signet:admin');
 
@@ -214,6 +222,21 @@ export class AdminCommandService {
     }
 
     /**
+     * Remove a (closed) websocket from the tracking array and drop its listeners.
+     * Called from each socket's own close handler so that reconnects — which can recur
+     * indefinitely for a persistently-unreachable relay — don't accumulate dead
+     * WebSocket objects (and their listener closures) in `this.websockets` for the
+     * lifetime of the process.
+     */
+    private pruneWebsocket(ws: WebSocket): void {
+        const idx = this.websockets.indexOf(ws);
+        if (idx !== -1) {
+            this.websockets.splice(idx, 1);
+        }
+        ws.removeAllListeners();
+    }
+
+    /**
      * Subscribe to DMs for all active keys
      */
     private subscribeToAllKeys(): void {
@@ -330,6 +353,7 @@ export class AdminCommandService {
 
         ws.on('close', () => {
             debug('WebSocket closed for %s', relay);
+            this.pruneWebsocket(ws);
             // Only attempt reconnection if generation matches and still running
             if (this.isRunning && generation === this.subscriptionGeneration) {
                 this.scheduleReconnect(relay, filter, recipientPubkeys, generation, 'nip04');
@@ -352,15 +376,11 @@ export class AdminCommandService {
         // Get current retry count for this relay
         const retryCount = this.relayRetryCounts.get(relay) ?? 0;
 
-        // Check if we've exceeded max retries
-        if (retryCount >= RECONNECT_MAX_RETRIES) {
-            logger.warn('Kill switch: max retries exceeded for relay', { relay, retryCount });
-            return;
-        }
-
-        // Calculate delay with exponential backoff
+        // Calculate delay with exponential backoff, clamped to the max delay. We keep
+        // retrying indefinitely so a long relay outage cannot permanently disable the
+        // kill switch on that relay.
         const delay = Math.min(
-            RECONNECT_BASE_DELAY_MS * Math.pow(2, retryCount),
+            RECONNECT_BASE_DELAY_MS * Math.pow(2, Math.min(retryCount, RECONNECT_BACKOFF_MAX_EXP)),
             RECONNECT_MAX_DELAY_MS
         );
 
@@ -475,6 +495,7 @@ export class AdminCommandService {
 
         ws.on('close', () => {
             debug('NIP-17 WebSocket closed for %s', relay);
+            this.pruneWebsocket(ws);
             if (this.isRunning && generation === this.subscriptionGeneration) {
                 // Pass empty array for recipientPubkeys since NIP-17 doesn't need it
                 this.scheduleReconnect(relay, filter, [], generation, 'nip17');
@@ -485,12 +506,32 @@ export class AdminCommandService {
     }
 
     /**
+     * Reject a command event whose signed timestamp is too far from now.
+     * Defends against replay of genuine, previously-issued admin commands
+     * (NIP-04 kind-4 DMs are public and retrievable from relays). Allows a
+     * small window in both directions to tolerate clock skew.
+     */
+    private isFreshCommand(createdAt: number | undefined): boolean {
+        if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
+            return false;
+        }
+        const now = Math.floor(Date.now() / 1000);
+        return Math.abs(now - createdAt) <= COMMAND_MAX_AGE_SEC;
+    }
+
+    /**
      * Handle NIP-04 DM event
      */
     private async handleNip04Event(event: Event): Promise<void> {
         // Verify sender is admin
         if (event.pubkey !== this.adminPubkey) {
             debug('Ignoring DM from non-admin: %s', event.pubkey);
+            return;
+        }
+
+        // Reject stale/replayed commands (event signature is already verified)
+        if (!this.isFreshCommand(event.created_at)) {
+            debug('Ignoring stale NIP-04 command (created_at %d)', event.created_at);
             return;
         }
 
@@ -549,12 +590,31 @@ export class AdminCommandService {
                 return;
             }
 
+            // The seal is the only signed layer in NIP-17 (the outer gift wrap is
+            // signed by a throwaway ephemeral key, and the inner rumor is unsigned).
+            // We MUST verify the seal's signature and bind it to the admin pubkey —
+            // otherwise an attacker can forge a seal using only public values
+            // (symmetric NIP-44 conversation keys) and set the unsigned rumor's
+            // author to the admin, bypassing authentication entirely.
+            if (!verifyEvent(seal)) {
+                debug('NIP-17 seal has invalid signature, dropping');
+                return;
+            }
+            if (seal.pubkey !== this.adminPubkey) {
+                debug('NIP-17 seal not signed by admin: %s', seal.pubkey);
+                return;
+            }
+
             // Decrypt the seal to get the rumor
             const sealConversationKey = getConversationKey(nsecBytes, seal.pubkey);
             const rumorJson = nip44Decrypt(seal.content, sealConversationKey);
             const rumor = JSON.parse(rumorJson) as Event;
 
-            // Verify the rumor is from admin and is kind 14 (DM)
+            // Per NIP-17 the rumor author must equal the (now-verified) seal author.
+            if (rumor.pubkey !== seal.pubkey) {
+                debug('Rumor author does not match seal author');
+                return;
+            }
             if (rumor.pubkey !== this.adminPubkey) {
                 debug('Rumor not from admin: %s', rumor.pubkey);
                 return;
@@ -562,6 +622,13 @@ export class AdminCommandService {
 
             if (rumor.kind !== 14) {
                 debug('Rumor is not kind 14: %d', rumor.kind);
+                return;
+            }
+
+            // Reject stale/replayed commands. Use the rumor timestamp (the gift
+            // wrap created_at is deliberately fuzzed per NIP-17 and must not be used).
+            if (!this.isFreshCommand(rumor.created_at)) {
+                debug('Ignoring stale NIP-17 command (created_at %d)', rumor.created_at);
                 return;
             }
 

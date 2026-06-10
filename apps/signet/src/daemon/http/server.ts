@@ -69,7 +69,11 @@ export class HttpServer {
 
     constructor(config: HttpServerConfig) {
         this.config = config;
-        this.fastify = Fastify({ logger: { level: 'warn' } });
+        // forceCloseConnections: the /events SSE handler keeps its request open
+        // indefinitely, which would otherwise make fastify.close() (awaited during
+        // graceful shutdown) hang until the client disconnects — meaning SIGTERM never
+        // completes and the supervisor eventually SIGKILLs, skipping clean teardown.
+        this.fastify = Fastify({ logger: { level: 'warn' }, forceCloseConnections: true });
     }
 
     getFastify(): FastifyInstance {

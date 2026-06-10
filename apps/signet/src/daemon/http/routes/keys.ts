@@ -72,8 +72,10 @@ export function registerKeysRoutes(
         }
     });
 
-    // Unlock an encrypted key (POST - needs CSRF)
-    fastify.post('/keys/:keyName/unlock', { preHandler: [...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    // Unlock an encrypted key (POST - needs CSRF).
+    // Rate-limited: this is the passphrase-verification endpoint, so an unlimited
+    // request rate would make it a passphrase brute-force oracle against the key at rest.
+    fastify.post('/keys/:keyName/unlock', { preHandler: [...preHandler.rateLimit, ...preHandler.auth, ...preHandler.csrf] }, async (request: FastifyRequest, reply: FastifyReply) => {
         const { keyName } = request.params as { keyName: string };
         const { passphrase } = request.body as { passphrase?: string };
 

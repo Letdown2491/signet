@@ -1,9 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import type { TrustLevel, DisplayRequest } from '@signet/types';
 import { fetchConnectionInfo } from './lib/connection.js';
-import { ToastProvider, useToast } from './contexts/ToastContext.js';
-import { SettingsProvider, useSettings } from './contexts/SettingsContext.js';
-import { ServerEventsProvider, useServerEventsContext } from './contexts/ServerEventsContext.js';
+import { useToast } from './contexts/ToastContext.js';
+import { ToastProvider } from './contexts/ToastProvider.js';
+import { useSettings } from './contexts/SettingsContext.js';
+import { SettingsProvider } from './contexts/SettingsProvider.js';
+import { useServerEventsContext } from './contexts/ServerEventsContext.js';
+import { ServerEventsProvider } from './contexts/ServerEventsProvider.js';
 import { AppLayout } from './components/layout/AppLayout.js';
 import type { NavItem } from './components/layout/Sidebar.js';
 import { Toast } from './components/shared/Toast.js';

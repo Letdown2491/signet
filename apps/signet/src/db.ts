@@ -54,8 +54,25 @@ if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
 }
 
-// Prisma 7 with client engine requires driver adapter
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
+// Prisma 7 with client engine requires driver adapter.
+// timeout = SQLite busy_timeout: wait up to 5s for a lock rather than failing
+// immediately with SQLITE_BUSY when a read and write briefly contend.
+const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}`, timeout: 5000 });
 const prisma = new PrismaClient({ adapter });
+
+/**
+ * Apply connection pragmas. Call once at startup before serving requests.
+ * - WAL: readers no longer block the writer (and vice-versa), which matters because
+ *   better-sqlite3 calls are synchronous and run inside the request hot path
+ *   (ACL lookups, per-response keyUser lookup, log writes). WAL is persisted in the
+ *   database file, but we set it on every boot so a fresh/copied DB gets it too.
+ * - synchronous=NORMAL: the recommended durability/throughput trade-off under WAL
+ *   (safe against corruption; at most the last transaction can be lost on power loss).
+ */
+export async function applyDatabasePragmas(): Promise<void> {
+    await prisma.$executeRawUnsafe('PRAGMA journal_mode=WAL;');
+    await prisma.$executeRawUnsafe('PRAGMA synchronous=NORMAL;');
+    await prisma.$executeRawUnsafe('PRAGMA busy_timeout=5000;');
+}
 
 export default prisma;

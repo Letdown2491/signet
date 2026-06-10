@@ -1,6 +1,6 @@
 import React from 'react';
 import type { AdminActivityEntry } from '@signet/types';
-import { getAdminEventIcon, getAdminEventLabel } from '../shared/Icons.js';
+import { getAdminEventIcon, getAdminEventLabel } from '../shared/icon-helpers.js';
 import { formatRelativeTime } from '../../lib/formatters.js';
 import styles from './AdminActivityCard.module.css';
 

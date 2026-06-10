@@ -113,4 +113,26 @@ export async function runStart(options: StartOptions): Promise<void> {
     };
 
     daemon.send(payload);
+
+    // Propagate the child's exit so a crash is visible to the supervisor
+    // (systemd Restart=on-failure, Docker restart policy). Without this the parent's
+    // event loop drains after the child dies and the parent exits 0, masking crashes.
+    daemon.on('exit', (code, signal) => {
+        process.exit(code ?? (signal ? 1 : 0));
+    });
+    daemon.on('error', (err) => {
+        console.error('Failed to run daemon process:', err.message);
+        process.exit(1);
+    });
+
+    // Forward termination signals to the forked daemon so its graceful-shutdown
+    // handler runs. In Docker this CLI parent is PID 1; without forwarding, the
+    // daemon child is killed by container teardown (SIGKILL) and never shuts down cleanly.
+    const forward = (signal: NodeJS.Signals) => {
+        if (!daemon.killed) {
+            daemon.kill(signal);
+        }
+    };
+    process.on('SIGTERM', () => forward('SIGTERM'));
+    process.on('SIGINT', () => forward('SIGINT'));
 }

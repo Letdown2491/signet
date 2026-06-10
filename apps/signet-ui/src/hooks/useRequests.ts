@@ -307,7 +307,7 @@ export function useRequests(): UseRequestsResult {
       await refresh();
       return false;
     }
-  }, [requests, passwords, refresh]);
+  }, [requests, passwords, refresh, addOptimistic]);
 
   const deny = useCallback(async (id: string): Promise<boolean> => {
     // React 19: Instant UI update before API call (wrapped in transition for proper scheduling)
@@ -336,7 +336,7 @@ export function useRequests(): UseRequestsResult {
       await refresh();
       return false;
     }
-  }, [refresh]);
+  }, [refresh, addOptimistic]);
 
   // Decorate requests with computed fields (using optimistic state for instant feedback)
   const decoratedRequests: DisplayRequest[] = useMemo(() => {

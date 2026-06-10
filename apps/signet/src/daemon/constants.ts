@@ -4,6 +4,13 @@
 
 // Request expiry and polling
 export const REQUEST_EXPIRY_MS = 60_000; // 60 seconds
+
+// Global cap on concurrent pending (manual-approval) authorizations. Each pending auth
+// holds a DB-polling promise + expiry timer and triggers an outbound auth_url publish,
+// so an unauthenticated `connect` flood from rotating pubkeys could otherwise exhaust
+// memory and amplify relay traffic. A human can only approve a handful at once, so this
+// ceiling is far above any legitimate concurrent load.
+export const MAX_PENDING_AUTHORIZATIONS = 100;
 export const POLL_TIMEOUT_MS = 65_000; // 65 seconds (slightly longer than expiry)
 export const POLL_INITIAL_INTERVAL_MS = 100;
 export const POLL_MAX_INTERVAL_MS = 2_000;
@@ -46,6 +53,15 @@ export const RELAY_WATCHDOG_FAILURE_THRESHOLD = 3; // failures before reset
 export const RELAY_WATCHDOG_RESET_COOLDOWN_MS = 5 * 60_000; // 5 minutes between resets
 export const RELAY_HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 export const RELAY_SLEEP_DETECTION_THRESHOLD_MS = RELAY_HEARTBEAT_INTERVAL_MS * 3; // 90 seconds
+
+// Relay publish pacing (resilience under inbound request bursts)
+export const RELAY_PUBLISH_MAX_CONCURRENCY = 12; // max simultaneous publish operations across the pool
+export const RELAY_PUBLISH_COOLDOWN_MS = 5_000; // skip a relay this long after it rate-limits or times out
+
+// Per-app (per remote pubkey) NIP-46 request throttle
+export const NIP46_APP_RATE_REFILL_PER_SEC = 10; // sustained requests/sec admitted per connected app
+export const NIP46_APP_RATE_BURST = 30; // instantaneous burst allowance per app
+export const NIP46_APP_RATE_MAX_DELAY_MS = 2_000; // queue an over-budget request up to this long, else shed it
 
 // Input validation limits
 export const MAX_KEY_NAME_LENGTH = 64;

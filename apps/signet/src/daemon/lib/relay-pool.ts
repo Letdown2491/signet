@@ -9,9 +9,28 @@ import {
     RELAY_WATCHDOG_RESET_COOLDOWN_MS,
     RELAY_HEARTBEAT_INTERVAL_MS,
     RELAY_SLEEP_DETECTION_THRESHOLD_MS,
+    RELAY_PUBLISH_MAX_CONCURRENCY,
+    RELAY_PUBLISH_COOLDOWN_MS,
 } from '../constants.js';
+import { Semaphore } from './semaphore.js';
 
 const debug = createDebug('signet:relay-pool');
+
+/**
+ * Heuristic: does a relay's publish-rejection reason indicate it is throttling
+ * us (rate limit) or overwhelmed (timeout)? Such relays are put in a short
+ * cooldown so we stop hammering them while they recover.
+ */
+export function isThrottleError(message: string): boolean {
+    const m = message.toLowerCase();
+    return (
+        m.includes('rate') ||        // "rate-limited", "rate limited"
+        m.includes('slow down') ||
+        m.includes('too many') ||
+        m.includes('timed out') ||
+        m.includes('timeout')
+    );
+}
 
 export interface RelayStatus {
     url: string;
@@ -47,6 +66,13 @@ export class RelayPool {
     private readonly relayStatus: Map<string, RelayStatus> = new Map();
     private consecutiveFailures = 0;
     private lastReset: number = 0;
+
+    // Caps simultaneous publish operations so a request burst can't fire hundreds
+    // of EVENT frames at the relay sockets at once.
+    private readonly publishSemaphore = new Semaphore(RELAY_PUBLISH_MAX_CONCURRENCY);
+    // Per-relay "skip until" timestamps: a relay that just rate-limited or timed
+    // out is avoided for a short window so it can recover.
+    private readonly relayCooldownUntil: Map<string, number> = new Map();
 
     // Sleep/wake detection
     private heartbeatTimer?: NodeJS.Timeout;
@@ -237,11 +263,23 @@ export class RelayPool {
      * @param customRelays - Optional custom relays to publish to (defaults to pool's configured relays)
      */
     public async publish(event: Event, customRelays?: string[]): Promise<{ successes: string[]; failures: Array<{ url: string; error: string }> }> {
-        const relaysToUse = customRelays ?? this.relays;
-        debug('publishing event %s (kind %d) to %d relays', event.id?.slice(0, 8), event.kind, relaysToUse.length);
+        const requested = customRelays ?? this.relays;
 
-        const results = await Promise.allSettled(
-            this.pool.publish(relaysToUse, event)
+        // Skip relays currently in a rate-limit/timeout cooldown so we stop
+        // hammering a relay that just told us to slow down. If *every* candidate
+        // is cooling down, fall back to the full set rather than dropping the
+        // response entirely.
+        const now = Date.now();
+        const ready = requested.filter((r) => (this.relayCooldownUntil.get(r) ?? 0) <= now);
+        const relaysToUse = ready.length > 0 ? ready : requested;
+
+        debug('publishing event %s (kind %d) to %d/%d relays',
+            event.id?.slice(0, 8), event.kind, relaysToUse.length, requested.length);
+
+        // Bound concurrency: under a request burst this caps how many publishes
+        // hit the relay sockets at once.
+        const results = await this.publishSemaphore.run(() =>
+            Promise.allSettled(this.pool.publish(relaysToUse, event))
         );
 
         const successes: string[] = [];
@@ -260,6 +298,11 @@ export class RelayPool {
             } else {
                 const errorMsg = result.reason?.message ?? String(result.reason);
                 failures.push({ url: relayUrl, error: errorMsg });
+                // A throttling/timeout relay goes into cooldown so subsequent
+                // publishes skip it until it has had a chance to recover.
+                if (isThrottleError(errorMsg)) {
+                    this.relayCooldownUntil.set(relayUrl, Date.now() + RELAY_PUBLISH_COOLDOWN_MS);
+                }
                 // Only update status for pool's configured relays
                 if (this.relays.includes(relayUrl)) {
                     this.updateRelayStatus(relayUrl, false, errorMsg);

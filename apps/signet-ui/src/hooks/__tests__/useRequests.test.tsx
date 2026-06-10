@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import { useRequests } from '../useRequests';
-import { SettingsProvider } from '../../contexts/SettingsContext';
+import { SettingsProvider } from '../../contexts/SettingsProvider';
 import { createMockRequest } from '../../testing/mocks';
 
 // Mock the api-client module

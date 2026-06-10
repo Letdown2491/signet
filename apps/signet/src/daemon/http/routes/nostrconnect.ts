@@ -138,7 +138,7 @@ export function registerNostrconnectRoutes(
             }
 
             // Set up per-app relay subscription
-            nostrconnectService.subscribeToClientRelays(body.keyName, keyUser.id, relays);
+            nostrconnectService.subscribeToClientRelays(body.keyName, keyUser.id, clientPubkey, relays);
 
             // Emit app connected event
             const app = await config.appService.getAppById(keyUser.id);
