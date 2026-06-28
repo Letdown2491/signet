@@ -1,0 +1,38 @@
+{
+  "name": "signet-extension",
+  "version": "1.20.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser extension to approve Signet NIP-46 requests and connections without keeping the dashboard open.",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "launch": "bash scripts/dev-chromium.sh",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.5",
+    "@fontsource-variable/jetbrains-mono": "^5.2.5",
+    "@signet/types": "workspace:*",
+    "hash-wasm": "^4.12.0",
+    "lucide-react": "^0.563.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "@wxt-dev/module-react": "^1.1.3",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wxt": "^0.20.6"
+  }
+}

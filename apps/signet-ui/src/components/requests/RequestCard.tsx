@@ -5,6 +5,7 @@ import { getKindLabel, getMethodLabel, getTrustLevelBehavior, parseConnectPermis
 import { getMethodInfo, getTrustLevelInfo } from '../../lib/event-labels.js';
 import { formatTtl, truncateContent } from '../../lib/formatters.js';
 import { useSettings } from '../../contexts/SettingsContext.js';
+import { PubkeyAvatar } from '../shared/PubkeyAvatar.js';
 import styles from './RequestCard.module.css';
 
 interface RequestCardProps {
@@ -45,18 +46,12 @@ export function RequestCard({
   const eventKind = request.eventPreview?.kind;
   const showCompact = !isPending;
 
-  // Parse requested permissions from connect params
+  // The daemon surfaces the connect request's `optional_requested_perms` as
+  // `requestedPerms` (raw `params` is now the metadata blob, not the original array).
   const requestedPermissions = useMemo(() => {
-    if (request.method !== 'connect' || !request.params) return [];
-    try {
-      const params = JSON.parse(request.params);
-      // NIP-46 connect params: [pubkey, secret?, perms?]
-      const permsStr = Array.isArray(params) ? params[2] : undefined;
-      return parseConnectPermissions(permsStr);
-    } catch {
-      return [];
-    }
-  }, [request.method, request.params]);
+    if (request.method !== 'connect' || !request.requestedPerms?.length) return [];
+    return parseConnectPermissions(request.requestedPerms.join(','));
+  }, [request.method, request.requestedPerms]);
 
   // Get behavior for selected trust level
   const trustBehavior = getTrustLevelBehavior(selectedTrustLevel);
@@ -84,7 +79,8 @@ export function RequestCard({
         {/* Line 1: App name • key + Status badge */}
         <div className={styles.header}>
           <div className={styles.headerLeft}>
-            <span className={styles.appName}>
+            <PubkeyAvatar pubkey={request.remotePubkey} size={16} title={request.npub} />
+            <span className={styles.appName} title={request.npub}>
               {request.appName || `${request.npub.slice(0, 16)}...`}
             </span>
             <span className={styles.separator}>•</span>

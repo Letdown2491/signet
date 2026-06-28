@@ -26,8 +26,15 @@ export interface PendingRequest {
     processedAt?: string | null;
     autoApproved: boolean;
     approvalType?: ApprovalType;
-    /** App name from KeyUser.description, if available */
+    /** App name from KeyUser.description, or the client-supplied metadata name on a connect request */
     appName?: string | null;
+    /** App URL from client-supplied connect metadata (display hint only, never authorization) */
+    appUrl?: string | null;
+    /**
+     * Permissions the client requested on a `connect` request (NIP-46 `optional_requested_perms`),
+     * as raw `method[:params]` strings. Display/convenience hint only — not used for authorization.
+     */
+    requestedPerms?: string[] | null;
     /** Whether the request was allowed (true=approved, false=denied, null=pending/expired) */
     allowed?: boolean | null;
 }

@@ -3,7 +3,7 @@
    ============================================ */
 
 .container {
-  max-width: 900px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
 }
 

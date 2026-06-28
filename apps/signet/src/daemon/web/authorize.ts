@@ -8,6 +8,7 @@ import { getEventService } from '../services/event-service.js';
 import { appService, emitCurrentStats } from '../services/index.js';
 import { VALID_TRUST_LEVELS } from '../constants.js';
 import { extractEventKind } from '../lib/parse.js';
+import { decodeConnectMetadata } from '../lib/connect-metadata.js';
 import { toErrorMessage, toSafeErrorHtml } from '../lib/errors.js';
 import type { ActivityEntry } from '@signet/types';
 import type { RequestWithId, ProcessRequestRequest } from '../http/types.js';
@@ -103,11 +104,14 @@ export async function processRequestWebHandler(
         // For connect requests, use the new trust level system (only if keyName is present)
         if (record.keyName) {
             if (record.method === 'connect') {
+                // Fall back to the client-supplied connect metadata name when the user didn't
+                // type one — purely a display label for the connection (never authorization).
+                const description = appName || decodeConnectMetadata(record.params)?.name || undefined;
                 const appId = await grantPermissionsByTrustLevel(
                     record.remotePubkey,
                     record.keyName,
                     trustLevel,
-                    appName || undefined
+                    description
                 );
 
                 // Emit app:connected event for real-time updates

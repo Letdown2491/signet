@@ -3,7 +3,7 @@
    ============================================ */
 
 .container {
-  max-width: 720px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
 }
 
@@ -353,6 +353,28 @@
   color: var(--text-secondary);
 }
 
+.sensitiveBadge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--warning-muted);
+  color: var(--warning);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.kindDescription {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
+}
+
 .signPreview {
   display: block;
   margin-top: var(--space-2);
@@ -562,8 +584,9 @@
   width: 100%;
 }
 
+/* Approvals are the norm — keep the icon neutral so denials/admin events stand out. */
 .activityIconApproved {
-  color: var(--success);
+  color: var(--text-secondary);
 }
 
 .activityIconDenied {

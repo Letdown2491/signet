@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { getMethodInfo, getPermissionRisk } from '../../lib/event-labels.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
 import { CopyIcon, CloseIcon } from '../shared/Icons.js';
+import { PubkeyAvatar } from '../shared/PubkeyAvatar.js';
 import styles from './RequestDetailsModal.module.css';
 
 interface RequestDetailsModalProps {
@@ -170,7 +171,8 @@ export function RequestDetailsModal({
                 </div>
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>From</span>
-                  <span className={styles.infoValue} title={request.npub}>
+                  <span className={`${styles.infoValue} ${styles.infoValueWithAvatar}`} title={request.npub}>
+                    <PubkeyAvatar pubkey={request.remotePubkey} size={16} title={request.npub} />
                     {request.appName || `${request.npub.slice(0, 12)}...${request.npub.slice(-8)}`}
                   </span>
                 </div>

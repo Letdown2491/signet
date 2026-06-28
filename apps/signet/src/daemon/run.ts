@@ -7,6 +7,7 @@ import { SubscriptionManager } from './lib/subscription-manager.js';
 import { printServerInfo, isLoopbackHost } from './lib/network.js';
 import { resolveServerBinding } from './lib/server-config.js';
 import { requestAuthorization } from './authorize.js';
+import { parseConnectMetadata } from './lib/connect-metadata.js';
 import type { DaemonBootstrapConfig } from './types.js';
 import { checkRequestPermission, type RpcMethod, type ApprovalType } from './lib/acl.js';
 import { TTLCache, getAllCacheStats } from './lib/ttl-cache.js';
@@ -148,8 +149,12 @@ function buildAuthorizationCallback(
         }
         keyLogger.info('No ACL decision, proceeding to authorization request', { npub: humanPubkey });
 
+        // For connect, carry the client-supplied metadata + requested perms through to the
+        // approval surface as display hints (NIP-46 optional_requested_perms/client_metadata).
+        const connectMeta = method === 'connect' ? parseConnectMetadata(params) : undefined;
+
         try {
-            await requestAuthorization(connectionManager, keyName, pubkey, id, method, primaryParam);
+            await requestAuthorization(connectionManager, keyName, pubkey, id, method, primaryParam, connectMeta);
             return true;
         } catch (error) {
             keyLogger.info('Authorization rejected', { error: toErrorMessage(error) });

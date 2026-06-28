@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import type { DisplayRequest, TrustLevel } from '@signet/types';
-import { getMethodLabel, getKindLabel } from '@signet/types';
+import { getMethodLabel, getKindLabel, getKindDescription, isKindSensitive, parseConnectPermissions, formatPermission } from '@signet/types';
 import { ChevronDown, ChevronRight, Check, X, Inbox } from 'lucide-react';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
 import { ConfirmDialog } from '../shared/ConfirmDialog.js';
+import { PubkeyAvatar } from '../shared/PubkeyAvatar.js';
 import styles from './HomeView.module.css';
 
 interface ApprovalParams {
@@ -111,7 +112,8 @@ export function PendingRequestsList({
                 >
                   <div className={styles.listItemRow}>
                     <span className={styles.pendingDot} />
-                    <span className={styles.listItemAppName}>
+                    <PubkeyAvatar pubkey={request.remotePubkey} size={18} title={request.npub} />
+                    <span className={styles.listItemAppName} title={request.npub}>
                       {request.appName || (request.npub ? request.npub.slice(0, 16) + '...' : 'Unknown')}
                     </span>
                     <span className={styles.listItemTime}>
@@ -130,8 +132,11 @@ export function PendingRequestsList({
                     <div className={styles.listItemDetails}>
                       <div className={styles.detailRow}>
                         <span className={styles.detailLabel}>From:</span>
-                        <span className={styles.detailValue}>
-                          {request.appName || (request.npub ? <code>{request.npub.slice(0, 20)}...</code> : 'Unknown')}
+                        <span className={styles.detailValue} title={request.npub}>
+                          {request.appName && <>{request.appName} </>}
+                          {request.npub
+                            ? <code>{request.npub.slice(0, 12)}…{request.npub.slice(-6)}</code>
+                            : !request.appName && 'Unknown'}
                         </span>
                       </div>
                       {request.method === 'sign_event' && request.eventPreview && (
@@ -139,6 +144,14 @@ export function PendingRequestsList({
                           <span className={styles.detailLabel}>Signing:</span>
                           <span className={styles.detailValue}>
                             {getKindLabel(request.eventPreview.kind)}
+                            {isKindSensitive(request.eventPreview.kind) && (
+                              <span className={styles.sensitiveBadge}>Sensitive</span>
+                            )}
+                            {getKindDescription(request.eventPreview.kind) && (
+                              <span className={styles.kindDescription}>
+                                {getKindDescription(request.eventPreview.kind)}
+                              </span>
+                            )}
                             {request.eventPreview.content && (
                               <code className={styles.signPreview}>
                                 {truncateForPreview(request.eventPreview.content)}
@@ -183,11 +196,30 @@ export function PendingRequestsList({
                               type="text"
                               className={styles.appNameInput}
                               aria-label="App name"
-                              value={appNames[request.id] || ''}
+                              // Pre-fill from the client-supplied connect metadata name (NIP-46),
+                              // but let the user override it. Treat it as a display hint only.
+                              value={appNames[request.id] ?? request.appName ?? ''}
                               onChange={(e) => onAppNameChange(request.id, e.target.value)}
                               placeholder="e.g., Primal, Amethyst"
                             />
                           </div>
+                          {request.appUrl && (
+                            <div className={styles.detailRow}>
+                              <span className={styles.detailLabel}>Claims URL:</span>
+                              {/* Plain text, never a link — this is unauthenticated, client-supplied. */}
+                              <span className={styles.detailValue}>{request.appUrl}</span>
+                            </div>
+                          )}
+                          {request.requestedPerms && request.requestedPerms.length > 0 && (
+                            <div className={styles.detailRow}>
+                              <span className={styles.detailLabel}>Requested:</span>
+                              <span className={styles.detailValue}>
+                                {parseConnectPermissions(request.requestedPerms.join(','))
+                                  .map(formatPermission)
+                                  .join(', ')}
+                              </span>
+                            </div>
+                          )}
                           <div className={styles.trustSection}>
                             <span className={styles.detailLabel}>Trust:</span>
                             <div className={styles.trustOptions}>
@@ -224,7 +256,7 @@ export function PendingRequestsList({
                             trustLevel,
                             alwaysAllow,
                             allowKind,
-                            appName: request.method === 'connect' ? appNames[request.id] : undefined,
+                            appName: request.method === 'connect' ? (appNames[request.id] ?? request.appName ?? undefined) : undefined,
                           };
                           // Granting Full trust auto-approves all future requests from
                           // this app — require an explicit confirmation.

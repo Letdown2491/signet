@@ -4,6 +4,7 @@ import { parseConnectPermissions, formatPermission } from '@signet/types';
 import { toNpub, formatLastActive } from '../../lib/formatters.js';
 import { getPermissionRisk, getTrustLevelInfo } from '../../lib/event-labels.js';
 import { LoadingSpinner } from '../shared/LoadingSpinner.js';
+import { AppAvatar } from '../shared/AppAvatar.js';
 import { ConfirmDialog } from '../shared/ConfirmDialog.js';
 import { PageHeader } from '../shared/PageHeader.js';
 import { SuspendAppModal } from './SuspendAppModal.js';
@@ -338,8 +339,19 @@ export function AppsPanel({
                   onClick={() => handleExpand(app.id)}
                 >
                   <div className={styles.appMain}>
-                    <span className={`${styles.activityDot} ${!isSuspended ? styles.active : ''}`} />
-                    <span className={`${styles.appName} ${isSuspended ? styles.muted : ''}`}>{displayName}</span>
+                    <span
+                      className={`${styles.avatarRing} ${!isSuspended ? styles.active : ''}`}
+                      title={isSuspended ? 'Suspended' : 'Active'}
+                    >
+                      <AppAvatar
+                        pubkey={app.userPubkey}
+                        appId={app.id}
+                        hasImage={app.hasImage}
+                        size={16}
+                        title={toNpub(app.userPubkey)}
+                      />
+                    </span>
+                    <span className={`${styles.appName} ${isSuspended ? styles.muted : ''}`} title={toNpub(app.userPubkey)}>{displayName}</span>
                   </div>
                   <span className={styles.appLastActive}>{isSuspended ? 'Suspended' : formatLastActive(app.lastUsedAt)}</span>
                   <div className={styles.appMeta}>

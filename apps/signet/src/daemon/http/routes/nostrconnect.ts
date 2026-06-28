@@ -109,6 +109,8 @@ export function registerNostrconnectRoutes(
                     description: sanitizedDescription || null,
                     nostrconnectRelays: JSON.stringify(relays),
                     trustLevel: body.trustLevel,
+                    // Only set when the URI carried a valid https image; never clear on reconnect.
+                    imageUrl: parseResult.data.image ?? undefined,
                 },
                 create: {
                     keyName: body.keyName,
@@ -116,6 +118,7 @@ export function registerNostrconnectRoutes(
                     description: sanitizedDescription || null,
                     nostrconnectRelays: JSON.stringify(relays),
                     trustLevel: body.trustLevel,
+                    imageUrl: parseResult.data.image,
                 },
             });
 

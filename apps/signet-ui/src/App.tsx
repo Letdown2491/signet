@@ -174,9 +174,9 @@ function AppContent() {
   // Handle recovery from inactivity lock
   const handleRecover = async (keyName: string, passphrase: string, resumeApps: boolean): Promise<{ ok: boolean; error?: string }> => {
     // Step 1: Unlock the key
-    const unlockSuccess = await keys.unlockKey(keyName, passphrase);
-    if (!unlockSuccess) {
-      return { ok: false, error: 'Invalid passphrase. Please try again.' };
+    const unlockResult = await keys.unlockKey(keyName, passphrase);
+    if (!unlockResult.ok) {
+      return { ok: false, error: unlockResult.error || 'Incorrect passphrase. Please try again.' };
     }
 
     // Step 2: Reset the dead man switch (clears panic state)

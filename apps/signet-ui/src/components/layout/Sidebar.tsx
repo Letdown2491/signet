@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Home, Smartphone, Key, Activity, Settings, HelpCircle, ChevronDown, ChevronRight, Plus, Lock, LockOpen, Loader2, Terminal, Copy, Check } from 'lucide-react';
 import type { KeyInfo, RelayStatusResponse } from '@signet/types';
+import type { UnlockResult } from '../../hooks/useKeys.js';
 import { UnlockKeyModal } from './UnlockKeyModal.js';
 import { DeadManSwitchCard } from './DeadManSwitchCard.js';
 import { copyToClipboard } from '../../lib/clipboard.js';
@@ -19,6 +20,17 @@ function getScoreClass(score: number): string {
   return styles.scorePoor;
 }
 
+/**
+ * Human-readable band for a relay trust score, used in the badge tooltip so the bare
+ * number has meaning. Bands match getScoreClass thresholds.
+ */
+function getScoreBand(score: number): string {
+  if (score >= 80) return 'Excellent';
+  if (score >= 60) return 'Good';
+  if (score >= 40) return 'Fair';
+  return 'Poor';
+}
+
 interface SidebarProps {
   activeNav: NavItem;
   onNavChange: (nav: NavItem) => void;
@@ -31,7 +43,7 @@ interface SidebarProps {
   lockingKey?: string | null;
   unlockingKey?: string | null;
   onLockKey?: (keyName: string) => Promise<boolean>;
-  onUnlockKey?: (keyName: string, passphrase: string) => Promise<boolean>;
+  onUnlockKey?: (keyName: string, passphrase: string) => Promise<UnlockResult>;
   onConnectApp?: () => void;
   onAddKey?: () => void;
 }
@@ -74,11 +86,11 @@ export function Sidebar({
   const handleUnlockSubmit = useCallback(async (passphrase: string) => {
     if (!unlockModalKey || !onUnlockKey) return;
     setUnlockError(null);
-    const success = await onUnlockKey(unlockModalKey, passphrase);
-    if (success) {
+    const result = await onUnlockKey(unlockModalKey, passphrase);
+    if (result.ok) {
       setUnlockModalKey(null);
     } else {
-      setUnlockError('Failed to unlock key. Check your passphrase.');
+      setUnlockError(result.error || 'Failed to unlock key.');
     }
   }, [unlockModalKey, onUnlockKey]);
 
@@ -331,14 +343,14 @@ export function Sidebar({
                         {relay.trustScore !== null ? (
                           <span
                             className={`${styles.scoreBadge} ${getScoreClass(relay.trustScore)}`}
-                            title={`Trust score: ${relay.trustScore}`}
+                            title={`Relay reputation: ${relay.trustScore}/100 (${getScoreBand(relay.trustScore)}) — source: trustedrelays.xyz`}
                           >
                             {relay.trustScore}
                           </span>
                         ) : (
                           <span
                             className={`${styles.scoreBadge} ${styles.scoreUnknown}`}
-                            title="Trust score unavailable"
+                            title="Relay reputation unavailable — not rated by trustedrelays.xyz"
                           >
                             ?
                           </span>

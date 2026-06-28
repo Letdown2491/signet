@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { KeyInfo, ConnectedApp } from '@signet/types';
+import type { UnlockResult } from '../../hooks/useKeys.js';
 import { LoadingSpinner } from '../shared/LoadingSpinner.js';
 import { ConfirmDialog } from '../shared/ConfirmDialog.js';
 import { QRModal } from '../shared/QRModal.js';
@@ -26,7 +27,7 @@ interface KeysPanelProps {
   forceShowCreateForm?: boolean;
   onCreateKey: (data: { keyName: string; passphrase?: string; nsec?: string }) => Promise<KeyInfo | null>;
   onDeleteKey: (keyName: string, passphrase?: string) => Promise<{ success: boolean; revokedApps?: number }>;
-  onUnlockKey: (keyName: string, passphrase: string) => Promise<boolean>;
+  onUnlockKey: (keyName: string, passphrase: string) => Promise<UnlockResult>;
   onLockKey: (keyName: string) => Promise<boolean>;
   onLockAllKeys: () => Promise<{ success: boolean; lockedCount?: number }>;
   onRenameKey: (keyName: string, newName: string) => Promise<boolean>;

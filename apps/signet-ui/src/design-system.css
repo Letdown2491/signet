@@ -105,7 +105,8 @@
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 64px;
   --header-height: 56px;
-  --content-max-width: 1200px;
+  /* Working width of the main content column (left-anchored next to the sidebar). */
+  --content-max-width: 920px;
 
   /* Z-index */
   --z-base: 0;

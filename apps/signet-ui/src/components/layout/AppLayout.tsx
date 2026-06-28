@@ -1,6 +1,7 @@
 import React from 'react';
 import { Menu, X, Command } from 'lucide-react';
 import { Sidebar, type NavItem } from './Sidebar.js';
+import type { UnlockResult } from '../../hooks/useKeys.js';
 import type { KeyInfo, RelayStatusResponse } from '@signet/types';
 import styles from './AppLayout.module.css';
 
@@ -18,7 +19,7 @@ interface AppLayoutProps {
   lockingKey?: string | null;
   unlockingKey?: string | null;
   onLockKey?: (keyName: string) => Promise<boolean>;
-  onUnlockKey?: (keyName: string, passphrase: string) => Promise<boolean>;
+  onUnlockKey?: (keyName: string, passphrase: string) => Promise<UnlockResult>;
   onConnectApp?: () => void;
   onAddKey?: () => void;
 }

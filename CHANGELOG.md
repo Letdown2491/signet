@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.20.0] - 2026-06-28
+
+### Added
+- **Browser extension (Chrome & Firefox)**: a new `apps/signet-extension` package — a companion extension that surfaces and approves NIP-46 requests without keeping the dashboard tab open. It is **not** a signer (keys never leave the daemon); it is a thin client over the daemon's existing REST/SSE API, sharing `@signet/types` so the contract can't drift. Built with WXT (one source, per-browser builds). Capabilities:
+  - **Multi-server with a switcher**: connect to one or more Signet servers by URL (network-trust model, like the Android app — no daemon changes required). Add, rename, remove, and switch the active server; the active server drives the badge and every view.
+  - **PIN-gated encrypted vault**: a required PIN gates the extension; an optional `requireAuth` token is encrypted at rest with **Argon2id**-derived AES-GCM (legacy PBKDF2 vaults migrate transparently on unlock). Idle-based auto-lock (configurable), a 10-attempt wipe, and change-PIN.
+  - **Live toolbar badge**: the pending count updates instantly from the daemon's SSE `/events` stream, with a `chrome.alarms` reconnect/keepalive fallback. White badge with a black count for legibility.
+  - **Full approval form**: mirrors the dashboard — trust level, always-allow, per-kind allow, passphrase for locked keys, an event preview, and a "View details" expander showing the full event (kind, content, all tags) or raw params.
+  - **Activity, app management, and connect-an-app**: a history feed, connected-app management (revoke / suspend / resume), and connecting a new app (`bunker://` link with QR + nostrconnect paste) — all in the popup.
+  - **In-popup Settings**: live server connection status, idle auto-lock timeout, change PIN, and a reset.
+  - **Tests**: unit coverage for the vault crypto (create/unlock round-trip, wrong-PIN countdown and wipe, change-PIN, the PBKDF2→Argon2id migration), the server-list migration, and SSE frame parsing. A privacy policy and store metadata are included for submission.
+- **NIP-46 connect metadata as approval display hints**: a `connect` request's optional client metadata (`name`, `url`) and `optional_requested_perms` are now parsed and surfaced on the approval surface — most useful for the `bunker://` flow, where (unlike `nostrconnect://`) the signer otherwise has no identity for the connecting app. The metadata is persisted on the request (replacing the otherwise-unused target pubkey in `params`, so it survives a re-fetch) and shown in the pending list (the app's claimed name/URL plus the permissions it requested). It is sanitized and length/count-bounded. Per NIP-46 this is client-supplied and unauthenticated — **a display hint only, never used for authorization** (an operator-typed name still takes precedence). New parser with test coverage.
+- **Pubkey identicons**: connected apps and pending/recent requests now show a deterministic gradient avatar derived from the app's pubkey (dependency-free, FNV-1a-seeded). The same key always renders the same avatar, so a spoofed display name on a *different* key looks visibly different — an anti-impersonation cue. Decorative (`aria-hidden`, npub tooltip), with a neutral fallback for an empty pubkey. Tested.
+- **Sensitive-action cue on pending sign requests**: a pending `sign_event` now shows a "Sensitive" badge and a human-readable kind description next to the event kind, so the operator can tell at a glance when an app is asking to sign something consequential.
+- **App avatars via an SSRF-guarded proxy**: a connected app's NIP-46 `image` URL is now shown in the Apps list (framed by the status ring), with the pubkey identicon as the fallback. The browser **never** fetches the untrusted URL — the daemon captures the `https`-only URL at connect time (both `bunker://` connect metadata and the `nostrconnect://` URI), then serves it server-side through `GET /apps/:id/avatar` under tight constraints: DNS pinned to a validated public address (rebinding-safe), private/loopback/link-local/cloud-metadata IPs blocked, no redirects, a 5s timeout, a 512&nbsp;KB cap, and a raster-image content-type allowlist (no SVG), with positive/negative caching. Clients only learn *whether* an app has an image (`ConnectedApp.hasImage`), not the URL. New `image-proxy` module with SSRF-gate unit tests; new `KeyUser.imageUrl` column.
+- **App status ring**: each app's avatar in the Apps list is wrapped in a status ring (green = active, muted = suspended), replacing the separate status dot so the avatar and its state read as one element.
+
+### Improved
+- **`signet-ui` visual refresh**: a pass over the dashboard's layout and color.
+  - **Unified, centered content width**: every page now uses one centered content column (`--content-max-width`) with even gutters, instead of differently-sized columns that jumped width between tabs.
+  - **Semantic color**: color now signals exceptions rather than decorating. Approvals are quiet across the Dashboard and Activity feeds so denials, expirations, and admin events stand out; permission chips on the Apps card are neutral labels (only a `critical` permission gets a fill); the "wall of green/amber" is gone.
+  - **Clearer hierarchy and labels**: dashboard stat cards lead with the status word plus an uptime sublabel (instead of an uptime number labeled with a status), activity rows have a real underlined "Details" affordance, and the Home title matches its nav entry.
+  - **Trust-level terminology aligned across the product**: the extension now uses the dashboard's "Always Ask / Auto-approve Safe / Auto-approve All" labels (and the dashboard's vertical option layout) instead of "Paranoid / Reasonable / Full".
+- **Honest unlock-error reporting**: unlocking a key now distinguishes a *wrong passphrase* from an *unreachable signer*. The daemon translates the low-level NIP-49/AES decryption failure into a clear `Incorrect passphrase` error (the NIP-49 and legacy-AES paths in `unlockKey`/`verifyPassphrase` were refactored into a single `decryptKeyMaterial` helper), and the UI surfaces the specific reason — wrong passphrase vs. timeout/can't-reach-the-signer — instead of a blanket "check your passphrase." New key-service tests.
+- **Informative relay reputation tooltips**: the sidebar's relay trust badges now show a banded score with attribution — `Relay reputation: N/100 (Excellent/Good/Fair/Poor) — source: trustedrelays.xyz` — and an unrated relay says so explicitly instead of showing a bare "?".
+
+### Fixed
+- **Wrong-passphrase unlock returns 400, not 500**: a wrong passphrase on `POST /keys/:name/unlock` now maps to `Incorrect passphrase` (HTTP 400) instead of falling through to a cryptic 500, so the UI can report it correctly. New route-error mapping test (400/404/409 and the 500 fallback).
+
 ## [1.11.0]
 
 ### Security

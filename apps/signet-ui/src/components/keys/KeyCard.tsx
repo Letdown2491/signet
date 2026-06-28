@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { KeyInfo, ConnectedApp } from '@signet/types';
+import type { UnlockResult } from '../../hooks/useKeys.js';
 import { ChevronDown, ChevronRight, Copy, QrCode, Lock, Unlock, Trash2, Users, Pencil, Shield, Download, ArrowUpCircle, HelpCircle } from 'lucide-react';
 import { formatRelativeTime, toNpub } from '../../lib/formatters.js';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
@@ -20,7 +21,7 @@ interface KeyCardProps {
   migrating: boolean;
   exporting: boolean;
   onToggleExpand: () => void;
-  onUnlock: (passphrase: string) => Promise<boolean>;
+  onUnlock: (passphrase: string) => Promise<UnlockResult>;
   onLock: () => void;
   onRename: (newName: string) => Promise<boolean>;
   onEncrypt: (encryption: 'nip49' | 'legacy', passphrase: string, confirmPassphrase: string) => Promise<boolean>;
@@ -99,8 +100,8 @@ export function KeyCard({
 
   const handleUnlock = async () => {
     if (!unlockPassphrase.trim()) return;
-    const success = await onUnlock(unlockPassphrase);
-    if (success) {
+    const result = await onUnlock(unlockPassphrase);
+    if (result.ok) {
       setUnlockPassphrase('');
     }
   };

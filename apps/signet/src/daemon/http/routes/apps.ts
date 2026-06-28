@@ -6,6 +6,7 @@ import type { PreHandlerAuthCsrf } from '../types.js';
 import { sendError } from '../../lib/route-errors.js';
 import { adminLogRepository } from '../../repositories/admin-log-repository.js';
 import { getClientInfo } from '../../lib/client-info.js';
+import { getAvatar } from '../../lib/image-proxy.js';
 
 export interface AppsRouteConfig {
     appService: AppService;
@@ -20,6 +21,35 @@ export function registerAppsRoutes(
     fastify.get('/apps', { preHandler: preHandler.auth }, async (_request: FastifyRequest, reply: FastifyReply) => {
         const apps = await config.appService.listApps();
         return reply.send({ apps });
+    });
+
+    // Avatar proxy: fetch the app's client-supplied image through the SSRF-guarded proxy and
+    // serve the bytes, so the browser never touches the untrusted URL. 404 → UI shows the
+    // identicon. GET, so no CSRF; same auth as /apps (cookie-first verify covers <img> tags).
+    fastify.get('/apps/:id/avatar', { preHandler: preHandler.auth }, async (request: FastifyRequest, reply: FastifyReply) => {
+        const { id } = request.params as { id: string };
+        const appId = Number(id);
+        if (!Number.isFinite(appId)) {
+            return reply.code(400).send({ error: 'Invalid app ID' });
+        }
+
+        const imageUrl = await config.appService.getImageUrl(appId);
+        if (!imageUrl) {
+            return reply.code(404).send({ error: 'No avatar' });
+        }
+
+        const avatar = await getAvatar(imageUrl);
+        if (!avatar) {
+            return reply.code(404).send({ error: 'Avatar unavailable' });
+        }
+
+        return reply
+            .header('Content-Type', avatar.contentType)
+            .header('Cache-Control', 'private, max-age=3600')
+            // Defense in depth: tell the browser not to reinterpret the bytes as anything else.
+            .header('X-Content-Type-Options', 'nosniff')
+            .header('Content-Security-Policy', "default-src 'none'; img-src 'self'")
+            .send(avatar.body);
     });
 
     // Revoke app access (POST - needs CSRF)

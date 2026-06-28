@@ -15,6 +15,7 @@ export class AppService {
             keyName: string;
             userPubkey: string;
             description: string | null;
+            imageUrl?: string | null;
             trustLevel: string | null;
             createdAt: Date;
             lastUsedAt: Date | null;
@@ -52,6 +53,9 @@ export class AppService {
             keyName: keyUser.keyName,
             userPubkey: keyUser.userPubkey,
             description: keyUser.description ?? undefined,
+            // Expose only whether an avatar exists — never the raw untrusted URL. The
+            // UI requests the bytes through the SSRF-guarded proxy (GET /apps/:id/avatar).
+            hasImage: !!keyUser.imageUrl,
             trustLevel: (keyUser.trustLevel as TrustLevel) ?? 'reasonable',
             permissions: permissions.length > 0 ? permissions : ['All methods'],
             connectedAt: keyUser.createdAt.toISOString(),
@@ -193,6 +197,15 @@ export class AppService {
 
     async countActive(): Promise<number> {
         return appRepository.countActive();
+    }
+
+    /**
+     * The raw client-supplied avatar URL for an app, if any. Server-side only — used by the
+     * avatar proxy route; never returned to clients (they get `hasImage` instead).
+     */
+    async getImageUrl(appId: number): Promise<string | null> {
+        const app = await appRepository.findById(appId);
+        return app?.imageUrl ?? null;
     }
 
     async updateTrustLevel(appId: number, trustLevel: TrustLevel): Promise<void> {

@@ -1,6 +1,7 @@
 packages:
   - apps/signet
   - apps/signet-ui
+  - apps/signet-extension
   - packages/*
 
 # Native-build allowlist lives in the root package.json (pnpm.onlyBuiltDependencies).

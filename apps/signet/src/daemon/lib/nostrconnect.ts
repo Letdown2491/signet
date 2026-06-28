@@ -26,6 +26,20 @@ export interface ParsedNostrconnect {
     permissions: NostrconnectPermission[];
     name?: string;
     url?: string;
+    /** Validated `https:` avatar URL, if supplied. Served only via the avatar proxy. */
+    image?: string;
+}
+
+/** Accept an `image` param only if it is a well-formed `https:` URL (structural gate;
+ *  the SSRF/size/content-type defenses live in the avatar proxy). */
+function parseHttpsImage(raw: string | null): string | undefined {
+    if (!raw) return undefined;
+    try {
+        const u = new URL(raw);
+        return u.protocol === 'https:' ? u.toString() : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 export type NostrconnectParseError =
@@ -156,6 +170,7 @@ export function parseNostrconnectUri(uri: string): NostrconnectParseResult {
     // Extract optional parameters
     const name = parsed.searchParams.get('name') || undefined;
     const url = parsed.searchParams.get('url') || undefined;
+    const image = parseHttpsImage(parsed.searchParams.get('image'));
 
     // Parse permissions
     const permsParam = parsed.searchParams.get('perms');
@@ -170,6 +185,7 @@ export function parseNostrconnectUri(uri: string): NostrconnectParseResult {
             permissions,
             name,
             url,
+            image,
         },
     };
 }

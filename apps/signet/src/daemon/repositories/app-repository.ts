@@ -6,6 +6,7 @@ export interface AppRecord {
     keyName: string;
     userPubkey: string;
     description: string | null;
+    imageUrl: string | null;
     trustLevel: string | null;
     createdAt: Date;
     lastUsedAt: Date | null;

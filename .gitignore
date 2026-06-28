@@ -45,3 +45,13 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 .pnpm-debug.log
+
+# Local agent / editor tooling (not part of the project)
+.claude/
+**/.impeccable/
+.github/hooks/
+.github/skills/
+
+# Extension build output
+.output/
+.wxt/

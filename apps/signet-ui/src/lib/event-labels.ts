@@ -14,7 +14,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import type { TrustLevel } from '@signet/types';
-import { getKindLabel } from '@signet/types';
+import { getKindLabel, getTrustLevelBehavior } from '@signet/types';
 
 // Re-export from shared package for backwards compatibility
 export const getEventKindLabel = getKindLabel;
@@ -69,25 +69,15 @@ export interface TrustLevelInfo {
   Icon: ComponentType<IconProps>;
 }
 
+const TRUST_ICONS: Record<TrustLevel, ComponentType<IconProps>> = {
+  paranoid: ShieldAlert,
+  reasonable: Shield,
+  full: ShieldCheck,
+};
+
+// Label/description come from the shared `getTrustLevelBehavior` (single source of
+// truth); only the icon is UI-local.
 export function getTrustLevelInfo(level: TrustLevel): TrustLevelInfo {
-  switch (level) {
-    case 'paranoid':
-      return {
-        label: 'Always Ask',
-        description: 'Every action requires your approval',
-        Icon: ShieldAlert,
-      };
-    case 'reasonable':
-      return {
-        label: 'Auto-approve Safe',
-        description: 'Auto-approve common actions, ask for sensitive ones',
-        Icon: Shield,
-      };
-    case 'full':
-      return {
-        label: 'Auto-approve All',
-        description: 'Automatically approve all requests from this app',
-        Icon: ShieldCheck,
-      };
-  }
+  const { label, description } = getTrustLevelBehavior(level);
+  return { label, description, Icon: TRUST_ICONS[level] };
 }

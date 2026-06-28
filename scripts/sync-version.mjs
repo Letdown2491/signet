@@ -24,6 +24,7 @@ const packageFiles = [
     'package.json',
     'apps/signet/package.json',
     'apps/signet-ui/package.json',
+    'apps/signet-extension/package.json',
     'packages/signet-types/package.json',
 ];
 

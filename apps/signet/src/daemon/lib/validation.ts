@@ -134,13 +134,24 @@ export function validateRelays(relays: string[] | undefined | null): ValidationR
 
 /**
  * Sanitize a string for safe storage.
- * Trims whitespace and removes control characters.
+ * Trims whitespace, removes control characters, and strips Unicode bidi-override /
+ * zero-width / invisible formatting characters that can be used to visually spoof a
+ * value (e.g. U+202E right-to-left override making "evil.app" render as "ppa.live")
+ * or to hide content — relevant for client-supplied, unauthenticated display fields
+ * like connect metadata.
  */
 export function sanitizeString(input: string | undefined | null): string {
     if (!input) {
         return '';
     }
-    // Remove control characters (except newlines/tabs in case of multi-line content)
-    // eslint-disable-next-line no-control-regex
-    return input.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    return (
+        input
+            .trim()
+            // Control characters (except newlines/tabs in case of multi-line content).
+            // eslint-disable-next-line no-control-regex
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+            // Bidi controls (U+061C, U+200E-200F, U+202A-202E, U+2066-2069), zero-width
+            // and invisible formatting (U+200B-200D, U+2060-206F, U+FEFF).
+            .replace(/[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+    );
 }

@@ -8,6 +8,7 @@ import { grantPermissionsByTrustLevel, permitAllRequests, type AllowScope } from
 import { getEventService } from '../../services/event-service.js';
 import { adminLogRepository } from '../../repositories/admin-log-repository.js';
 import { extractEventKind } from '../../lib/parse.js';
+import { decodeConnectMetadata } from '../../lib/connect-metadata.js';
 import { toErrorMessage } from '../../lib/errors.js';
 import {
     authorizeRequestWebHandler,
@@ -244,11 +245,16 @@ export function registerRequestRoutes(
                 // Grant permissions based on request type (only if keyName is present)
                 if (record.keyName) {
                     if (record.method === 'connect') {
+                        // Default the connection's display label to the client-supplied connect
+                        // metadata name (display hint only; the batch endpoint takes no name input).
+                        const connectMeta = decodeConnectMetadata(record.params);
+                        const description = connectMeta?.name || undefined;
                         const appId = await grantPermissionsByTrustLevel(
                             record.remotePubkey,
                             record.keyName,
                             trustLevel,
-                            undefined
+                            description,
+                            connectMeta?.image
                         );
 
                         // Emit app:connected event

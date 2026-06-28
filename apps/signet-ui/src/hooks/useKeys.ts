@@ -9,8 +9,31 @@ import {
     encryptKey as encryptKeyApi,
     migrateKeyToNip49 as migrateKeyApi,
     exportKey as exportKeyApi,
+    ApiError,
+    TimeoutError,
 } from '../lib/api-client.js';
 import { buildErrorMessage } from '../lib/formatters.js';
+
+/** Result of an unlock attempt — carries a specific failure reason for the UI. */
+export interface UnlockResult {
+    ok: boolean;
+    error?: string;
+}
+
+/**
+ * Turn an unlock failure into a specific, honest message: distinguish "can't reach the
+ * signer" (network/timeout) from a wrong passphrase (the daemon now returns a clear
+ * "Incorrect passphrase" error, which buildErrorMessage surfaces from the response body).
+ */
+function describeUnlockError(err: unknown): string {
+    if (err instanceof TimeoutError) {
+        return 'Couldn’t reach the signer — the request timed out. Check your connection.';
+    }
+    if (err instanceof ApiError && err.status === 0) {
+        return 'Couldn’t reach the signer. Check your connection.';
+    }
+    return buildErrorMessage(err, 'Failed to unlock key.');
+}
 import { useMutation } from './useMutation.js';
 import { useSSESubscription } from '../contexts/ServerEventsContext.js';
 import type { ServerEvent } from './useServerEvents.js';
@@ -34,7 +57,7 @@ interface UseKeysResult {
         encryption?: EncryptionFormat;
     }) => Promise<KeyInfo | null>;
     deleteKey: (keyName: string, passphrase?: string) => Promise<{ success: boolean; revokedApps?: number }>;
-    unlockKey: (keyName: string, passphrase: string) => Promise<boolean>;
+    unlockKey: (keyName: string, passphrase: string) => Promise<UnlockResult>;
     lockKey: (keyName: string) => Promise<boolean>;
     lockAllKeys: () => Promise<{ success: boolean; lockedCount?: number }>;
     renameKey: (keyName: string, newName: string) => Promise<boolean>;
@@ -144,19 +167,19 @@ export function useKeys(): UseKeysResult {
         { errorPrefix: 'Failed to delete key', onSuccess: refresh, onError: setError }
     );
 
-    // Unlock key mutation
+    // Unlock key mutation. The mutation fn resolves with a discriminated result instead of
+    // throwing, so unlockKey can return the specific failure reason to the UI (the daemon's
+    // rate-limited unlock endpoint throws on a wrong passphrase → ApiError with the body message).
     const unlockMutation = useMutation(
-        async ({ keyName, passphrase }: { keyName: string; passphrase: string }) => {
-            const result = await apiPost<{ ok?: boolean; error?: string }>(
-                `/keys/${encodeURIComponent(keyName)}/unlock`,
-                { passphrase }
-            );
-            if (!result.ok) {
-                throw new Error(result.error || 'Failed to unlock key');
+        async ({ keyName, passphrase }: { keyName: string; passphrase: string }): Promise<UnlockResult> => {
+            try {
+                await apiPost(`/keys/${encodeURIComponent(keyName)}/unlock`, { passphrase });
+                return { ok: true };
+            } catch (err) {
+                return { ok: false, error: describeUnlockError(err) };
             }
-            return true;
         },
-        { errorPrefix: 'Failed to unlock key', onSuccess: refresh, onError: setError }
+        { onSuccess: refresh }
     );
 
     // Lock key mutation
@@ -301,11 +324,16 @@ export function useKeys(): UseKeysResult {
         return result ?? { success: false };
     }, [deleteMutation]);
 
-    const unlockKey = useCallback(async (keyName: string, passphrase: string) => {
+    const unlockKey = useCallback(async (keyName: string, passphrase: string): Promise<UnlockResult> => {
         setUnlockingKeyName(keyName);
         try {
             const result = await unlockMutation.mutate({ keyName, passphrase });
-            return result ?? false;
+            const outcome: UnlockResult = result ?? { ok: false, error: 'Failed to unlock key.' };
+            // Surface the reason in the shared error state too (matches other key mutations).
+            if (!outcome.ok && outcome.error) {
+                setError(outcome.error);
+            }
+            return outcome;
         } finally {
             setUnlockingKeyName(null);
         }

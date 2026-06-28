@@ -5,6 +5,7 @@ import type { ConnectionManager } from './connection-manager.js';
 import { getEventService, emitCurrentStats } from './services/index.js';
 import { requestRepository } from './repositories/request-repository.js';
 import { parseEventPreview } from './lib/parse.js';
+import type { ConnectClientMetadata } from './lib/connect-metadata.js';
 import type { PendingRequest } from '@signet/types';
 import {
     POLL_INITIAL_INTERVAL_MS,
@@ -45,9 +46,12 @@ async function persistRequest(
     requestId: string,
     remotePubkey: string,
     method: string,
-    payload?: string | Event
+    payload?: string | Event,
+    connectMeta?: ConnectClientMetadata
 ) {
-    const params = serialiseParam(payload);
+    // For a connect carrying client metadata, persist that (so the approval surface can show
+    // the app's self-reported name/perms) instead of the otherwise-unused target signer pubkey.
+    const params = connectMeta ? JSON.stringify(connectMeta) : serialiseParam(payload);
 
     // Look up keyUserId for non-connect requests (connect creates the KeyUser on approval)
     let keyUserId: number | undefined;
@@ -90,7 +94,9 @@ async function persistRequest(
         requiresPassword: false, // Will be determined by the UI
         processedAt: null,
         autoApproved: false,
-        appName: record.KeyUser?.description ?? null,
+        appName: record.KeyUser?.description ?? connectMeta?.name ?? null,
+        appUrl: connectMeta?.url ?? null,
+        requestedPerms: connectMeta?.perms ?? null,
     });
 
     // Emit stats update (pending count increased)
@@ -213,7 +219,8 @@ export async function requestAuthorization(
     remotePubkey: string,
     requestId: string,
     method: string,
-    payload?: string | Event
+    payload?: string | Event,
+    connectMeta?: ConnectClientMetadata
 ): Promise<string | undefined> {
     // Admission control: reject before persisting a row or publishing an auth_url so a
     // flood of unknown-pubkey connects can't grow memory/timers or amplify relay traffic.
@@ -224,7 +231,7 @@ export async function requestAuthorization(
 
     pendingAuthorizations++;
     try {
-        const record = await persistRequest(keyName, requestId, remotePubkey, method, payload);
+        const record = await persistRequest(keyName, requestId, remotePubkey, method, payload, connectMeta);
         const baseUrl = await resolveBaseUrl(connectionManager);
 
         if (!baseUrl) {

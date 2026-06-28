@@ -69,7 +69,7 @@ export function HomeView({
   if (loading) {
     return (
       <div className={styles.container}>
-        <PageHeader title="Dashboard" />
+        <PageHeader title="Home" />
 
         {/* Skeleton Stats */}
         <section className={styles.statsSection}>
@@ -105,7 +105,7 @@ export function HomeView({
 
   return (
     <div className={styles.container}>
-      <PageHeader title="Dashboard" />
+      <PageHeader title="Home" />
 
       <StatsRow
         stats={stats}

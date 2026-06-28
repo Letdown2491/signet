@@ -502,7 +502,8 @@ export async function grantPermissionsByTrustLevel(
     remotePubkey: string,
     keyName: string,
     trustLevel: TrustLevel,
-    description?: string
+    description?: string,
+    imageUrl?: string
 ): Promise<number> {
     // Persist the KeyUser and its permission rows atomically: a crash between the
     // upsert and the condition writes must not leave an app with a trust level but no
@@ -510,8 +511,10 @@ export async function grantPermissionsByTrustLevel(
     const keyUserId = await prisma.$transaction(async (tx) => {
         const keyUser = await tx.keyUser.upsert({
             where: { unique_key_user: { keyName, userPubkey: remotePubkey } },
-            update: { trustLevel, description: description ?? undefined },
-            create: { keyName, userPubkey: remotePubkey, trustLevel, description },
+            // Only overwrite imageUrl when the client supplied one — never clear an
+            // existing avatar on a re-connect that omits it.
+            update: { trustLevel, description: description ?? undefined, imageUrl: imageUrl ?? undefined },
+            create: { keyName, userPubkey: remotePubkey, trustLevel, description, imageUrl },
         });
 
         // Always grant connect permission explicitly

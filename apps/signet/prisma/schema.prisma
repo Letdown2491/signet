@@ -38,6 +38,7 @@ model KeyUser {
   suspendUntil        DateTime?          // If set, app auto-resumes after this time
   lastUsedAt          DateTime?
   description         String?
+  imageUrl            String?            // Client-supplied (NIP-46 connect) avatar URL; untrusted, served only via the SSRF-guarded avatar proxy
   trustLevel          String             @default("reasonable") // 'paranoid' | 'reasonable' | 'full'
   nostrconnectRelays  String?            // JSON array of relay URLs for nostrconnect apps (null for bunker apps)
   logs                Log[]

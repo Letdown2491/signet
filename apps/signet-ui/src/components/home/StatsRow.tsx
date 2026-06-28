@@ -100,8 +100,8 @@ export function StatsRow({
             <HeartPulse size={24} />
           </div>
           <div className={styles.statContent}>
-            <span className={styles.statValue}>{uptimeDisplay}</span>
-            <span className={styles.statLabel}>{STATUS_LABELS[uiStatus]}</span>
+            <span className={styles.statValue}>{STATUS_LABELS[uiStatus]}</span>
+            <span className={styles.statLabel}>{health ? `Up ${uptimeDisplay}` : 'No connection'}</span>
           </div>
         </button>
       </div>

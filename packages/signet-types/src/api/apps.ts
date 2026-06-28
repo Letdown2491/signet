@@ -24,6 +24,13 @@ export interface ConnectedApp {
     keyName: string;
     userPubkey: string;
     description?: string;
+    /**
+     * True when the app supplied a (validated, https) image URL at connect time.
+     * The image itself is served via the daemon's avatar proxy (GET /apps/:id/avatar),
+     * never fetched directly by the browser. The UI falls back to the pubkey identicon
+     * when this is false or the proxy fails.
+     */
+    hasImage?: boolean;
     trustLevel: TrustLevel;
     permissions: string[];
     connectedAt: string;

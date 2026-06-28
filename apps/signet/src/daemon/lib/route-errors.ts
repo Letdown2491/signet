@@ -10,6 +10,7 @@ const errorStatusMap: Array<{ pattern: RegExp | string; status: number }> = [
     { pattern: 'required', status: 400 },
     { pattern: 'not a valid', status: 400 },
     { pattern: 'Passphrase required', status: 400 },
+    { pattern: 'Incorrect passphrase', status: 400 },
     { pattern: 'Nothing to update', status: 400 },
     // 404 Not Found
     { pattern: 'not found', status: 404 },

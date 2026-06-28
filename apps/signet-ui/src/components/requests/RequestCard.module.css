@@ -22,8 +22,9 @@
   border-left-color: var(--text-muted);
 }
 
+/* Approvals are the norm — keep them quiet so denials/expirations stand out. */
 .card.approved {
-  border-left-color: var(--success);
+  border-left-color: var(--border-subtle);
 }
 
 .card.denied {
@@ -44,7 +45,7 @@
 }
 
 .card.approved .iconWrapper {
-  color: var(--success);
+  color: var(--text-secondary);
 }
 
 .card.denied .iconWrapper {
@@ -145,7 +146,7 @@
 
 .methodName {
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .detailsLink {
@@ -153,7 +154,9 @@
   border: none;
   background: transparent;
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--text-tertiary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
   transition: color var(--transition-fast);
 }

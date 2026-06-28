@@ -314,18 +314,7 @@ export class KeyService {
             throw new Error('No encrypted key material found');
         }
 
-        let decrypted: string;
-
-        if (record.ncryptsec) {
-            // NIP-49 encrypted
-            const secretHex = decryptNip49(record.ncryptsec, passphrase);
-            decrypted = nsecEncode(hexToBytes(secretHex));
-        } else if (record.iv && record.data) {
-            // Legacy encrypted
-            decrypted = decryptSecret({ iv: record.iv, data: record.data }, passphrase);
-        } else {
-            throw new Error('No encrypted key material found');
-        }
+        const decrypted = this.decryptKeyMaterial(record, passphrase);
 
         this.activeKeys[keyName] = decrypted;
 
@@ -355,12 +344,32 @@ export class KeyService {
             throw new Error('Key is not encrypted');
         }
 
-        // Attempt to decrypt - throws if passphrase is wrong
-        if (record.ncryptsec) {
-            decryptNip49(record.ncryptsec, passphrase);
-        } else if (record.iv && record.data) {
-            decryptSecret({ iv: record.iv, data: record.data }, passphrase);
+        // Attempt to decrypt - throws 'Incorrect passphrase' if the passphrase is wrong.
+        this.decryptKeyMaterial(record, passphrase);
+    }
+
+    /**
+     * Decrypt a key record's secret with the given passphrase and return the nsec.
+     *
+     * Decryption (NIP-49 MAC check or legacy AES-256-GCM auth tag) fails on an incorrect
+     * passphrase with a low-level crypto error. We translate that into a clear, stable
+     * `Incorrect passphrase` message so callers — and ultimately the UI — can distinguish a
+     * wrong passphrase from a network/server failure, instead of surfacing a cryptic error.
+     */
+    private decryptKeyMaterial(record: StoredKey, passphrase: string): string {
+        try {
+            if (record.ncryptsec) {
+                // NIP-49 encrypted
+                return nsecEncode(hexToBytes(decryptNip49(record.ncryptsec, passphrase)));
+            }
+            if (record.iv && record.data) {
+                // Legacy AES-256-GCM encrypted
+                return decryptSecret({ iv: record.iv, data: record.data }, passphrase);
+            }
+        } catch {
+            throw new Error('Incorrect passphrase');
         }
+        throw new Error('No encrypted key material found');
     }
 
     loadKeyMaterial(keyName: string, nsec: string): void {

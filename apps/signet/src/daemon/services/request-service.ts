@@ -6,6 +6,7 @@ import {
     type RequestRecord,
 } from '../repositories/index.js';
 import { parseEventPreview } from '../lib/parse.js';
+import { decodeConnectMetadata } from '../lib/connect-metadata.js';
 
 export interface RequestServiceConfig {
     allKeys: Record<string, StoredKey>;
@@ -61,6 +62,12 @@ export class RequestService {
             ? parseEventPreview(record.params)
             : null;
 
+        // Surface client-supplied connect hints (name/url/perms) when the app has no
+        // KeyUser description yet (i.e. a pending bunker:// connect).
+        const connectMeta = record.method === 'connect'
+            ? decodeConnectMetadata(record.params)
+            : undefined;
+
         return {
             id: record.id,
             keyName: record.keyName ?? null,
@@ -75,7 +82,9 @@ export class RequestService {
             processedAt: record.processedAt?.toISOString() ?? null,
             autoApproved: record.autoApproved,
             approvalType: (record.approvalType as ApprovalType) ?? undefined,
-            appName: record.KeyUser?.description ?? null,
+            appName: record.KeyUser?.description ?? connectMeta?.name ?? null,
+            appUrl: connectMeta?.url ?? null,
+            requestedPerms: connectMeta?.perms ?? null,
             allowed: record.allowed,
         };
     }
