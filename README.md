@@ -2,7 +2,7 @@
 
 A modern NIP-46 remote signer for Nostr. Manages multiple keys securely with a web dashboard for administration. This project was originally forked from [nsecbunkerd](https://github.com/kind-0/nsecbunkerd), but has since received an extensive rewrite and now shares very little code with it.
 
-Signet separates the signing back end from the front end, and ships with a web UI. A companion Android app is [available on ZapStore](https://zapstore.dev/apps/naddr1qvzqqqr7pvpzpk4yr0kmdpv3xcalgsrldp7tj7yuc4p76qjtka7z95kgfky02s2nqq2hgetrdqhxwet9dd6x7umgdyh8x6t8dejhgck8a3z). Other platforms are possible and on the roadmap.
+Signet separates the signing back end from the front end, and ships with a web UI. A companion Android app is [available on ZapStore](https://zapstore.dev/apps/naddr1qvzqqqr7pvpzpk4yr0kmdpv3xcalgsrldp7tj7yuc4p76qjtka7z95kgfky02s2nqq2hgetrdqhxwet9dd6x7umgdyh8x6t8dejhgck8a3z). A companion **browser extension** (Chrome & Firefox) for approving requests without keeping the dashboard open lives in [`apps/signet-extension`](apps/signet-extension) — build it locally for now; store releases are planned. Other platforms are possible and on the roadmap.
 
 ## Web UI Screenshots
 

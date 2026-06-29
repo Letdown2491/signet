@@ -51,8 +51,10 @@ import tech.geektoshi.signet.data.model.ConnectedApp
 import tech.geektoshi.signet.data.model.KeyInfo
 import tech.geektoshi.signet.data.repository.EventBusRepository
 import tech.geektoshi.signet.data.repository.SettingsRepository
+import tech.geektoshi.signet.ui.components.AppAvatar
 import tech.geektoshi.signet.ui.components.AppDetailSheet
 import tech.geektoshi.signet.ui.components.ConnectAppSheet
+import tech.geektoshi.signet.util.TrustLevels
 import tech.geektoshi.signet.ui.components.EmptyState
 import tech.geektoshi.signet.ui.components.QRScannerSheet
 import tech.geektoshi.signet.ui.components.SkeletonAppCard
@@ -370,6 +372,7 @@ fun AppsScreen() {
                 items(apps, key = { it.id }) { app ->
                     AppCard(
                         app = app,
+                        daemonUrl = daemonUrl,
                         onClick = { selectedApp = app; Unit }
                     )
                 }
@@ -381,6 +384,7 @@ fun AppsScreen() {
 @Composable
 private fun AppCard(
     app: ConnectedApp,
+    daemonUrl: String?,
     onClick: () -> Unit
 ) {
     Card(
@@ -415,6 +419,14 @@ private fun AppCard(
                                 shape = CircleShape
                             )
                     )
+                    // App avatar (image via the SSRF-guarded proxy, else pubkey identicon)
+                    AppAvatar(
+                        pubkey = app.userPubkey,
+                        appId = app.id,
+                        hasImage = app.hasImage,
+                        daemonUrl = daemonUrl,
+                        size = 28.dp
+                    )
                     Text(
                         text = app.description ?: (app.userPubkey.take(12) + "..."),
                         style = MaterialTheme.typography.titleSmall,
@@ -441,12 +453,13 @@ private fun AppCard(
 
 @Composable
 private fun TrustLevelBadge(trustLevel: String) {
-    val (color, label, icon) = when (trustLevel.lowercase()) {
-        "full" -> Triple(Success, "Full", Icons.Outlined.Security)
-        "reasonable" -> Triple(SignetPurple, "Reasonable", Icons.Outlined.Shield)
-        "paranoid" -> Triple(Warning, "Paranoid", Icons.Outlined.Shield)
-        else -> Triple(TextMuted, trustLevel, Icons.Outlined.Shield)
+    val (color, icon) = when (trustLevel.lowercase()) {
+        "full" -> Success to Icons.Outlined.Security
+        "reasonable" -> SignetPurple to Icons.Outlined.Shield
+        "paranoid" -> Warning to Icons.Outlined.Shield
+        else -> TextMuted to Icons.Outlined.Shield
     }
+    val label = TrustLevels.label(trustLevel.lowercase())
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),

@@ -30,7 +30,7 @@ android {
         applicationId = "tech.geektoshi.signet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
+        versionCode = 12
         versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

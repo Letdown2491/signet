@@ -1,7 +1,7 @@
 import { decode as nip19Decode, npubEncode } from 'nostr-tools/nip19';
 import { hexToBytes } from './lib/hex.js';
 import { ConnectionManager } from './connection-manager.js';
-import { Nip46Backend, type PermitCallbackParams } from './nip46-backend.js';
+import { Nip46Backend, type PermitCallbackParams, type PermitDecision } from './nip46-backend.js';
 import { RelayPool } from './lib/relay-pool.js';
 import { SubscriptionManager } from './lib/subscription-manager.js';
 import { printServerInfo, isLoopbackHost } from './lib/network.js';
@@ -118,7 +118,7 @@ function buildAuthorizationCallback(
 ) {
     const keyLogger = logger.child({ key: keyName });
 
-    return async ({ id, method, pubkey, params }: PermitCallbackParams): Promise<boolean> => {
+    return async ({ id, method, pubkey, params }: PermitCallbackParams): Promise<PermitDecision> => {
         const humanPubkey = npubEncode(pubkey);
         keyLogger.info('Request received', { requestId: id, from: humanPubkey, method });
 
@@ -129,6 +129,12 @@ function buildAuthorizationCallback(
             method as RpcMethod,
             primaryParam
         );
+
+        // Unknown client + non-connect → drop silently (don't race a sibling signer / amplify floods).
+        if (result.drop) {
+            keyLogger.info('Dropping request from client with no session on this instance', { npub: humanPubkey, method });
+            return 'drop';
+        }
 
         if (result.permitted !== undefined) {
             const accessType = result.autoApproved ? 'auto-approved' : 'granted';

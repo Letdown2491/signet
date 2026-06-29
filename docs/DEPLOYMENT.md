@@ -2,6 +2,10 @@
 
 This guide covers common deployment scenarios for Signet.
 
+## Run one instance per key + relay set
+
+Don't run two Signet instances that hold the **same key** and subscribe to the **same relays** (e.g. a StartOS box plus a local build). They don't share state — separate databases mean separate sessions and connection tokens — so both receive every NIP-46 request for that signer, and only the instance that owns a given app's session can answer it. The daemon mitigates the worst symptom (the instance without a session now stays **silent** on signing requests instead of racing the other with "Not authorized"), but the initial `connect` handshake and `paranoid` apps connected to both instances remain inherently conflicting. If you need redundancy, use **different keys** per instance, or keep one instance authoritative and the other stopped.
+
 ## Tailscale Setup
 
 Tailscale provides secure access to Signet without exposing it to the public internet. All devices on your tailnet can reach Signet via its Tailscale hostname.

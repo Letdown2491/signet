@@ -49,6 +49,7 @@ import tech.geektoshi.signet.ui.theme.TextPrimary
 import tech.geektoshi.signet.ui.theme.Warning
 import tech.geektoshi.signet.util.formatRelativeTime
 import tech.geektoshi.signet.util.formatFutureTime
+import tech.geektoshi.signet.util.TrustLevels
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
@@ -162,24 +163,14 @@ fun AppDetailSheet(
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                TrustLevelOption(
-                    label = "Paranoid",
-                    description = "Require approval for every request",
-                    selected = selectedTrustLevel == "paranoid",
-                    onClick = { selectedTrustLevel = "paranoid" }
-                )
-                TrustLevelOption(
-                    label = "Reasonable",
-                    description = "Auto-approve read operations",
-                    selected = selectedTrustLevel == "reasonable",
-                    onClick = { selectedTrustLevel = "reasonable" }
-                )
-                TrustLevelOption(
-                    label = "Full",
-                    description = "Auto-approve all requests",
-                    selected = selectedTrustLevel == "full",
-                    onClick = { selectedTrustLevel = "full" }
-                )
+                TrustLevels.ORDER.forEach { level ->
+                    TrustLevelOption(
+                        label = TrustLevels.label(level),
+                        description = TrustLevels.description(level),
+                        selected = selectedTrustLevel == level,
+                        onClick = { selectedTrustLevel = level }
+                    )
+                }
             }
 
             // Error message
@@ -558,15 +549,8 @@ private fun TrustLevelBadge(trustLevel: String) {
         else -> TextMuted
     }
 
-    val label = when (trustLevel.lowercase()) {
-        "full" -> "Full"
-        "reasonable" -> "Reasonable"
-        "paranoid" -> "Paranoid"
-        else -> trustLevel
-    }
-
     Text(
-        text = label,
+        text = TrustLevels.label(trustLevel.lowercase()),
         style = MaterialTheme.typography.labelMedium,
         color = color
     )

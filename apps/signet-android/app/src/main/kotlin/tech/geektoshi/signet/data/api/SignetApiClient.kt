@@ -49,6 +49,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
@@ -307,6 +308,17 @@ class SignetApiClient(
     }
 
     /**
+     * Fetch an app's avatar bytes through the daemon's SSRF-guarded proxy
+     * (GET /apps/:id/avatar). Returns null when the app has no image or the proxy can't
+     * serve one (404) — the UI falls back to the pubkey identicon. Reuses the client's
+     * base URL + bearer auth so the browser/app never touches the untrusted image URL.
+     */
+    suspend fun getAppAvatar(id: Int): ByteArray? {
+        val response = client.get("/apps/$id/avatar")
+        return if (response.status.isSuccess()) response.body<ByteArray>() else null
+    }
+
+    /**
      * Revoke an app
      */
     suspend fun revokeApp(id: Int): OperationResponse {
@@ -439,6 +451,15 @@ class SignetApiClient(
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Like [healthCheck] but lets the underlying error propagate, so callers (e.g. setup)
+     * can distinguish a TLS/cert failure from connection-refused/timeout/DNS instead of a
+     * blanket "could not reach". Returns normally on success.
+     */
+    suspend fun pingHealth() {
+        withRetry { client.get("/health") }
     }
 
     // ==================== Dead Man's Switch (Inactivity Lock) ====================

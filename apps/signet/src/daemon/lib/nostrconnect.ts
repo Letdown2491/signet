@@ -1,7 +1,7 @@
 /**
  * Parser and validator for nostrconnect:// URIs (NIP-46 client-initiated connections).
  *
- * URI format: nostrconnect://<client-pubkey>?relay=wss://...&secret=...&perms=...&name=...&url=...
+ * URI format: nostrconnect://<client-pubkey>?relay=wss://...&secret=...&perms=...&name=...&url=...&image=...
  *
  * Required parameters:
  * - relay (one or more): Relay URLs where client listens for responses
@@ -11,7 +11,8 @@
  * - perms: Comma-separated permission list (e.g., "sign_event:1,nip44_encrypt")
  * - name: Client application name
  * - url: Client application URL
- * - image: Client application icon (not supported, ignored)
+ * - image: Client application icon — kept only if it's a valid `https:` URL; served later
+ *   via the SSRF-guarded avatar proxy, never fetched here.
  */
 
 export interface NostrconnectPermission {

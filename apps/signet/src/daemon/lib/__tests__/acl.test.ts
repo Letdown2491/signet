@@ -177,10 +177,20 @@ describe('checkRequestPermission (authorization gate)', () => {
         });
     });
 
-    it('denies an unknown client for non-connect methods', async () => {
+    it('drops (does not deny) an unknown client for non-connect methods', async () => {
         const r = await checkRequestPermission(KEY, PUBKEY, 'sign_event', signEvent(1));
         expect(r.permitted).toBe(false);
+        // `drop` makes the backend stay silent rather than send "Not authorized", so a sibling
+        // signer sharing the key+relays can answer without an error race.
+        expect(r.drop).toBe(true);
         expect(r.keyUserId).toBeUndefined();
+    });
+
+    it('does NOT drop a known app that is merely denied (revoked) — that still gets "Not authorized"', async () => {
+        h.keyUser = { id: 7, revokedAt: new Date(), suspendedAt: null, suspendUntil: null, trustLevel: 'full' };
+        const r = await checkRequestPermission(KEY, PUBKEY, 'sign_event', signEvent(1));
+        expect(r.permitted).toBe(false);
+        expect(r.drop).toBeFalsy();
     });
 
     it('routes an unknown client\'s connect to manual approval (permitted=undefined)', async () => {

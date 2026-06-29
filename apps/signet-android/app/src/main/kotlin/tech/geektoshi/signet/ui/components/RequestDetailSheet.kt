@@ -64,9 +64,14 @@ import tech.geektoshi.signet.ui.theme.SignetPurple
 import tech.geektoshi.signet.ui.theme.TextMuted
 import tech.geektoshi.signet.ui.theme.TextPrimary
 import tech.geektoshi.signet.ui.theme.TextSecondary
+import tech.geektoshi.signet.ui.theme.Warning
 import tech.geektoshi.signet.util.ClearSensitiveDataOnDispose
+import tech.geektoshi.signet.util.TrustLevels
+import tech.geektoshi.signet.util.formatPermission
 import tech.geektoshi.signet.util.getKindLabel
 import tech.geektoshi.signet.util.getMethodLabel
+import tech.geektoshi.signet.util.isKindSensitive
+import tech.geektoshi.signet.util.parseConnectPermissions
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -165,6 +170,16 @@ fun RequestDetailSheet(
                 )
 
                 InfoRow(label = "Kind", value = "${request.eventPreview.kind} (${getKindLabel(request.eventPreview.kind)})")
+
+                // Sensitive-action cue: flag kinds that change identity, leak data, or carry
+                // security/financial weight so the operator looks twice before approving.
+                if (isKindSensitive(request.eventPreview.kind)) {
+                    Text(
+                        text = "⚠ Sensitive action — review carefully before approving",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Warning
+                    )
+                }
 
                 if (request.eventPreview.content.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -280,6 +295,35 @@ fun RequestDetailSheet(
             if (isPending && isConnectRequest) {
                 HorizontalDivider(color = TextMuted.copy(alpha = 0.2f))
 
+                // Client-supplied connect metadata (NIP-46): the app's URL and the permissions
+                // it's asking for. Display hints only — unauthenticated, never authorization.
+                request.appUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                    InfoRow(
+                        label = "App URL",
+                        value = url.removePrefix("https://").removePrefix("http://")
+                    )
+                }
+
+                val requestedPerms = remember(request.requestedPerms) {
+                    parseConnectPermissions(request.requestedPerms)
+                }
+                if (requestedPerms.isNotEmpty()) {
+                    Text(
+                        text = "App requests",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        requestedPerms.forEach { perm ->
+                            Text(
+                                text = "• ${formatPermission(perm)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+
                 Text(
                     text = "App Name",
                     style = MaterialTheme.typography.titleMedium,
@@ -315,36 +359,19 @@ fun RequestDetailSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TrustLevelChip(
-                        level = "paranoid",
-                        label = "Paranoid",
-                        selected = selectedTrustLevel == "paranoid",
-                        onClick = { selectedTrustLevel = "paranoid" },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TrustLevelChip(
-                        level = "reasonable",
-                        label = "Reasonable",
-                        selected = selectedTrustLevel == "reasonable",
-                        onClick = { selectedTrustLevel = "reasonable" },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TrustLevelChip(
-                        level = "full",
-                        label = "Full",
-                        selected = selectedTrustLevel == "full",
-                        onClick = { selectedTrustLevel = "full" },
-                        modifier = Modifier.weight(1f)
-                    )
+                    TrustLevels.ORDER.forEach { level ->
+                        TrustLevelChip(
+                            level = level,
+                            label = TrustLevels.label(level),
+                            selected = selectedTrustLevel == level,
+                            onClick = { selectedTrustLevel = level },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 Text(
-                    text = when (selectedTrustLevel) {
-                        "paranoid" -> "Require approval for every request"
-                        "reasonable" -> "Auto-approve read operations"
-                        "full" -> "Auto-approve all requests"
-                        else -> ""
-                    },
+                    text = TrustLevels.description(selectedTrustLevel),
                     style = MaterialTheme.typography.bodySmall,
                     color = TextMuted
                 )

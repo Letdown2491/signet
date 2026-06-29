@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Signet is
 
-Signet is a NIP-46 remote signer ("bunker") for Nostr. It holds encrypted private keys and signs Nostr events on behalf of connected apps over relays, never exposing key material to those apps. It is a heavily-rewritten fork of nsecbunkerd. The system has three deployable parts plus a shared types package, organized as a pnpm workspace.
+Signet is a NIP-46 remote signer ("bunker") for Nostr. It holds encrypted private keys and signs Nostr events on behalf of connected apps over relays, never exposing key material to those apps. It is a heavily-rewritten fork of nsecbunkerd. The system has four deployable parts plus a shared types package, organized as a pnpm workspace.
 
 ## Repository layout
 
 - `apps/signet` — the **daemon** (`signet` package): NIP-46 backend, REST/SSE API, SQLite persistence, CLI. This is where most backend work happens.
 - `apps/signet-ui` — the **web dashboard** (`signet-ui` package): React 19 + Vite SPA, plus `server.mjs` (Express) that serves the build and reverse-proxies API calls to the daemon.
 - `apps/signet-android` — native Android client (Kotlin/Gradle). Separate toolchain; see `docs/ANDROID.md`.
-- `packages/signet-types` (`@signet/types`) — shared TypeScript types consumed by both daemon and UI. **Build this first** (the root `prepare` script does so) — daemon/UI typechecks depend on its `dist/`.
+- `apps/signet-extension` — the **browser extension** (`signet-extension` package): a WXT-built (Chrome MV3 + Firefox MV2) companion that surfaces and approves NIP-46 requests over the daemon's REST/SSE API. It is **not** a signer — keys never leave the daemon; it is a thin client like the dashboard, consuming `@signet/types`. PIN-gated Argon2id vault, multi-server switcher, live badge. See its `README.md`.
+- `packages/signet-types` (`@signet/types`) — shared TypeScript types consumed by the daemon, UI, **and extension**. **Build this first** (the root `prepare` script does so) — downstream typechecks depend on its `dist/`.
 
 ## Commands
 
@@ -25,7 +26,7 @@ pnpm run build:ui       # build apps/signet-ui
 pnpm run start:daemon   # run the built daemon (alias for `lfg`)
 pnpm run start:ui       # run the UI server (Express, proxies to daemon)
 pnpm run dev:ui         # Vite dev server for the UI
-pnpm run typecheck      # typecheck daemon + UI
+pnpm run typecheck      # typecheck daemon + UI + extension
 ```
 
 ### Daemon (`apps/signet`)
@@ -49,6 +50,17 @@ pnpm run lint       # eslint .
 pnpm run typecheck  # tsc --noEmit
 pnpm test           # vitest run (jsdom + Testing Library)
 ```
+
+### Browser extension (`apps/signet-extension`)
+```bash
+pnpm run dev            # WXT dev server (Chrome MV3); dev:firefox for Firefox MV2
+pnpm run launch         # load the dev build into a Flatpak Chromium (scripts/dev-chromium.sh)
+pnpm run build          # wxt build → .output/chrome-mv3; build:firefox for Firefox
+pnpm run zip            # package for store submission; zip:firefox for AMO
+pnpm run typecheck      # tsc --noEmit
+pnpm test               # vitest run (vault crypto, storage migration, SSE parsing)
+```
+Build output (`.output/`, `.wxt/`) is git-ignored. New entrypoints require a dev-server restart.
 
 There is no repo-wide lint; only the UI has an ESLint config (`apps/signet-ui/eslint.config.js`).
 

@@ -2,17 +2,27 @@
 <!--
     Network Security Configuration for Signet
 
-    This app is designed to connect to a Signet daemon running on a
-    Tailscale network. Tailscale provides transport-layer encryption
-    via WireGuard, so cleartext HTTP is permitted.
+    Signet connects to a daemon over a trusted network. Two transports are supported:
 
-    The daemon does not support HTTPS directly - it's designed to run
-    on trusted networks (Tailscale) or behind a reverse proxy.
+    1. Cleartext HTTP (cleartextTrafficPermitted="true") for a daemon reached over
+       Tailscale (WireGuard-encrypted) or a trusted LAN — the daemon has no TLS of its own.
+
+    2. HTTPS behind a reverse proxy or a self-hosting OS (e.g. StartOS/Start9, Umbrel),
+       which terminate TLS with their OWN root CA. Those CAs aren't public, so we also
+       trust user-installed certificates ("user" trust anchor) — the operator installs
+       their server's root CA on the device (Android Settings → Security → Encryption &
+       credentials → Install a certificate → CA certificate) and the HTTPS endpoint then
+       validates. Without this opt-in Android ignores user-installed CAs entirely.
+
+    Tradeoff: trusting "user" anchors means the app honours any CA the device owner has
+    installed. That's the accepted model for a self-hosted client the operator points at
+    their own server; it does not weaken the public "system" trust used for anything else.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>

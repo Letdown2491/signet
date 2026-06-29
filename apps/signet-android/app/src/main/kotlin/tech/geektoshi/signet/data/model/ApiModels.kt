@@ -127,6 +127,10 @@ data class PendingRequest(
     val autoApproved: Boolean,
     val approvalType: String? = null,  // 'manual' | 'auto_trust' | 'auto_permission'
     val appName: String? = null,
+    // Connect-request display hints (NIP-46 client metadata + optional_requested_perms),
+    // surfaced by the daemon. Unauthenticated — display only, never authorization.
+    val appUrl: String? = null,
+    val requestedPerms: List<String>? = null,
     val allowed: Boolean? = null
 )
 
@@ -201,6 +205,9 @@ data class ConnectedApp(
     val keyName: String,
     val userPubkey: String,
     val description: String? = null,
+    // True when the app supplied a validated https image; fetched via GET /apps/:id/avatar
+    // (the daemon's SSRF-guarded proxy), never the raw URL. UI falls back to the identicon.
+    val hasImage: Boolean = false,
     val trustLevel: String,
     val permissions: List<String>,
     val connectedAt: String,

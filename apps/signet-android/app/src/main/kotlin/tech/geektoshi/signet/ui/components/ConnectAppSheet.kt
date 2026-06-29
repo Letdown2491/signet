@@ -63,6 +63,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.model.KeyInfo
+import tech.geektoshi.signet.util.TrustLevels
 import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.BgTertiary
 import tech.geektoshi.signet.ui.theme.BorderDefault
@@ -670,21 +671,21 @@ fun ConnectAppSheet(
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             TrustLevelOption(
-                                label = "Reasonable",
-                                description = "Auto-approve common operations",
+                                label = TrustLevels.label("reasonable"),
+                                description = TrustLevels.description("reasonable"),
                                 selected = selectedTrustLevel == "reasonable",
                                 recommended = true,
                                 onClick = { selectedTrustLevel = "reasonable" }
                             )
                             TrustLevelOption(
-                                label = "Paranoid",
-                                description = "Require approval for every request",
+                                label = TrustLevels.label("paranoid"),
+                                description = TrustLevels.description("paranoid"),
                                 selected = selectedTrustLevel == "paranoid",
                                 onClick = { selectedTrustLevel = "paranoid" }
                             )
                             TrustLevelOption(
-                                label = "Full",
-                                description = "Auto-approve all requests",
+                                label = TrustLevels.label("full"),
+                                description = TrustLevels.description("full"),
                                 selected = selectedTrustLevel == "full",
                                 onClick = { selectedTrustLevel = "full" }
                             )

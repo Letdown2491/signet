@@ -114,12 +114,17 @@ export type ApprovalType = 'manual' | 'auto_trust' | 'auto_permission';
  * - autoApproved: true if permitted automatically (for backwards compatibility)
  * - approvalType: distinguishes between trust level and explicit permission auto-approval
  * - keyUserId: the KeyUser id (for logging)
+ * - drop: deny *silently* — send no response at all (rather than "Not authorized"). Used when
+ *   this instance simply has no session for the client, which is normal when multiple signers
+ *   share a key+relays: the instance that owns the session answers, the others must stay quiet
+ *   instead of racing it with an error frame. Also avoids amplifying request floods.
  */
 export interface PermissionResult {
     permitted: boolean | undefined;
     autoApproved: boolean;
     approvalType?: ApprovalType;
     keyUserId?: number;
+    drop?: boolean;
 }
 
 /**
@@ -337,13 +342,15 @@ export async function checkRequestPermission(
         });
 
         if (!keyUser) {
-            // Unknown client - only allow 'connect' requests to proceed to authorization
-            // All other requests from unknown clients are rejected immediately
-            // This prevents request floods from clients that haven't connected yet
+            // Unknown client - only 'connect' proceeds to the authorization flow.
             if (method === 'connect') {
                 return { permitted: undefined, autoApproved: false };
             }
-            return { permitted: false, autoApproved: false };
+            // Any other method from a client we have no session for is dropped *silently*.
+            // Emitting "Not authorized" here would (a) race a sibling signer that does own
+            // the session when several instances share a key+relays — the user's intermittent
+            // "Not authorized" — and (b) amplify floods by answering every stray request.
+            return { permitted: false, autoApproved: false, drop: true };
         }
 
         // Check if user is revoked

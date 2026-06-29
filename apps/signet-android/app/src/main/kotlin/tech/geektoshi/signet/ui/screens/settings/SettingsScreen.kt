@@ -65,6 +65,8 @@ import tech.geektoshi.signet.BuildConfig
 import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.model.DeadManSwitchStatus
 import tech.geektoshi.signet.data.model.KeyInfo
+import tech.geektoshi.signet.util.ErrorFormatter
+import tech.geektoshi.signet.util.TrustLevels
 import tech.geektoshi.signet.data.repository.SettingsRepository
 import tech.geektoshi.signet.ui.components.QRScannerSheet
 import tech.geektoshi.signet.ui.theme.BgSecondary
@@ -538,8 +540,22 @@ fun SettingsScreen(
                         TextButton(
                             onClick = {
                                 scope.launch {
-                                    settingsRepository.setDaemonUrl(daemonUrl.trim())
-                                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                                    val trimmed = daemonUrl.trim()
+                                    val client = SignetApiClient(trimmed)
+                                    try {
+                                        // Test the connection before saving so a bad URL / TLS
+                                        // failure surfaces instead of silently "saving" a dead one.
+                                        client.pingHealth()
+                                        settingsRepository.setDaemonUrl(trimmed)
+                                        Toast.makeText(context, "Connected", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("SignetSettings", "Connect to $trimmed failed", e)
+                                        val f = ErrorFormatter.format(e)
+                                        val msg = f.action?.let { "${f.message} — $it" } ?: f.message
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    } finally {
+                                        client.close()
+                                    }
                                 }
                             }
                         ) {
@@ -613,23 +629,13 @@ fun SettingsScreen(
                     onExpandedChange = { trustLevelExpanded = it }
                 ) {
                     OutlinedTextField(
-                        value = when (selectedTrustLevel) {
-                            "paranoid" -> "Paranoid"
-                            "reasonable" -> "Reasonable"
-                            "full" -> "Full"
-                            else -> "Reasonable"
-                        },
+                        value = TrustLevels.label(selectedTrustLevel),
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = trustLevelExpanded) },
                         supportingText = {
                             Text(
-                                text = when (selectedTrustLevel) {
-                                    "paranoid" -> "Require approval for every request"
-                                    "reasonable" -> "Auto-approve notes, reactions, reposts, and zaps"
-                                    "full" -> "Auto-approve all requests (use with caution)"
-                                    else -> ""
-                                },
+                                text = TrustLevels.description(selectedTrustLevel),
                                 color = TextMuted
                             )
                         },
@@ -653,9 +659,9 @@ fun SettingsScreen(
                         DropdownMenuItem(
                             text = {
                                 Column {
-                                    Text("Paranoid", color = TextPrimary)
+                                    Text(TrustLevels.label("paranoid"), color = TextPrimary)
                                     Text(
-                                        "Require approval for every request",
+                                        TrustLevels.description("paranoid"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = TextMuted
                                     )
@@ -670,9 +676,9 @@ fun SettingsScreen(
                         DropdownMenuItem(
                             text = {
                                 Column {
-                                    Text("Reasonable", color = TextPrimary)
+                                    Text(TrustLevels.label("reasonable"), color = TextPrimary)
                                     Text(
-                                        "Auto-approve notes, reactions, reposts, and zaps",
+                                        TrustLevels.description("reasonable"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = TextMuted
                                     )
@@ -687,9 +693,9 @@ fun SettingsScreen(
                         DropdownMenuItem(
                             text = {
                                 Column {
-                                    Text("Full", color = TextPrimary)
+                                    Text(TrustLevels.label("full"), color = TextPrimary)
                                     Text(
-                                        "Auto-approve all requests (use with caution)",
+                                        TrustLevels.description("full"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = TextMuted
                                     )

@@ -97,7 +97,18 @@ export interface PermitCallbackParams {
     params?: string[];
 }
 
-export type PermitCallback = (params: PermitCallbackParams) => Promise<boolean>;
+/**
+ * Authorization decision for a request:
+ * - `true`  → allowed, dispatch the method
+ * - `false` → denied, reply "Not authorized"
+ * - `'drop'`→ deny silently, send no response (e.g. no session on this instance; a sibling
+ *             signer sharing the key+relays owns it). Avoids cross-instance error races / flood amplification.
+ */
+export type PermitDecision = boolean | 'drop';
+export type PermitCallback = (params: PermitCallbackParams) => Promise<PermitDecision>;
+
+/** Sentinel handleMethod returns to tell handleEvent to publish nothing at all. */
+const DROP_REQUEST = Symbol('nip46-drop-request');
 
 export interface Nip46BackendConfig {
     keyName: string;
@@ -392,7 +403,11 @@ export class Nip46Backend {
             // Publish failures are swallowed (and logged) by publishOutcome so a
             // failed publish never triggers a *second* publish. Under a relay
             // rate-limit storm that amplification is exactly what we must avoid.
-            if (result !== undefined) {
+            if (result === DROP_REQUEST) {
+                // Silent drop: no session for this client on this instance. Sending nothing
+                // lets a sibling signer (sharing the key+relays) answer without an error race.
+                debug('[%s] dropping request %s from %s silently (no local session)', this.keyName, id, humanPubkey);
+            } else if (result !== undefined) {
                 await this.publishOutcome(id, 'response', () => this.sendResponse(id, remotePubkey, result));
             } else {
                 await this.publishOutcome(id, 'authorization error', () => this.sendError(id, remotePubkey, 'Not authorized'));
@@ -446,7 +461,7 @@ export class Nip46Backend {
         method: Nip46Method,
         params: string[],
         remotePubkey: string
-    ): Promise<string | undefined> {
+    ): Promise<string | undefined | typeof DROP_REQUEST> {
         // Special handling for connect with secret
         if (method === 'connect') {
             return this.handleConnect(id, params, remotePubkey);
@@ -470,6 +485,9 @@ export class Nip46Backend {
             params,
         });
 
+        if (permitted === 'drop') {
+            return DROP_REQUEST; // No session here — stay silent (a sibling signer may own it).
+        }
         if (!permitted) {
             return undefined; // Will send "Not authorized"
         }
@@ -558,7 +576,9 @@ export class Nip46Backend {
             pubkey: remotePubkey,
             params,
         });
-        return permitted ? 'ack' : undefined;
+        // 'connect' is never 'drop' (unknown clients go to the approval flow), but match
+        // strictly on true so only an actual approval acks.
+        return permitted === true ? 'ack' : undefined;
     }
 
     /**

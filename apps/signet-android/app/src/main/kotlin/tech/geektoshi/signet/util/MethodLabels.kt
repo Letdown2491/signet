@@ -3,6 +3,7 @@ package tech.geektoshi.signet.util
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.VpnKey
@@ -18,6 +19,7 @@ fun getMethodIcon(method: String): ImageVector {
         "get_public_key" -> Icons.Outlined.VpnKey
         "nip04_encrypt", "nip44_encrypt" -> Icons.Outlined.Lock
         "nip04_decrypt", "nip44_decrypt" -> Icons.Outlined.LockOpen
+        "logout" -> Icons.Outlined.LinkOff
         else -> Icons.Outlined.Edit
     }
 }
@@ -35,6 +37,7 @@ fun getMethodLabel(method: String, eventKind: Int? = null): String {
         "nip44_encrypt" -> "Encrypt message (NIP-44)"
         "nip44_decrypt" -> "Decrypt message (NIP-44)"
         "ping" -> "Ping"
+        "logout" -> "Disconnect"
         else -> method
     }
 }
@@ -52,6 +55,7 @@ fun getMethodLabelPastTense(method: String, eventKind: Int? = null): String {
         "nip44_encrypt" -> "Encrypted message"
         "nip44_decrypt" -> "Decrypted message"
         "ping" -> "Pinged"
+        "logout" -> "Disconnected"
         else -> method
     }
 }
@@ -128,3 +132,24 @@ fun getKindLabel(kind: Int): String {
         else -> "Kind $kind"
     }
 }
+
+/**
+ * Event kinds that are sensitive and warrant an extra cue before signing — they can change
+ * identity, leak data, or carry security/financial weight. Mirrors `SENSITIVE_KINDS` in
+ * `@signet/types` so the cue matches the web dashboard and extension.
+ */
+private val SENSITIVE_KINDS = setOf(
+    0,      // Profile metadata (identity)
+    3,      // Contact/follow list (social graph)
+    4,      // NIP-04 encrypted DM (privacy)
+    5,      // Event deletion (irreversible)
+    10002,  // Relay list (connectivity)
+    22242,  // Client authentication (security)
+    24133,  // NIP-46 request (signing for another signer)
+    13194,  // Wallet info (financial)
+    23194,  // Wallet request (financial)
+    23195   // Wallet response (financial)
+)
+
+/** Whether an event kind is sensitive and should show an extra warning cue. */
+fun isKindSensitive(kind: Int): Boolean = kind in SENSITIVE_KINDS

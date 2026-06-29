@@ -12,9 +12,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 
@@ -93,11 +95,21 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
-     * Daemon URL stored in encrypted SharedPreferences.
+     * Daemon URL stored in encrypted SharedPreferences, observed reactively so a change at
+     * runtime (e.g. completing setup or editing it in Settings) emits immediately — that's
+     * what flips the UI from the setup screen to the dashboard without an app restart.
+     *
+     * Note: EncryptedSharedPreferences delivers *encrypted* key names to the change listener,
+     * so we can't match on the key — we just re-read on any change (this prefs file only holds
+     * the daemon URL and the migration flag) and let distinctUntilChanged() drop no-ops.
      */
-    val daemonUrl: Flow<String> = flow {
-        emit(encryptedPrefs.getString(EncryptedKeys.DAEMON_URL, "") ?: "")
-    }
+    val daemonUrl: Flow<String> = callbackFlow {
+        val read = { encryptedPrefs.getString(EncryptedKeys.DAEMON_URL, "") ?: "" }
+        trySend(read())
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(read()) }
+        encryptedPrefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { encryptedPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
 
     val defaultTrustLevel: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[Keys.DEFAULT_TRUST_LEVEL] ?: "reasonable"

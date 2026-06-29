@@ -240,6 +240,35 @@ describe('Nip46Backend conversation-key cache', () => {
     });
   });
 
+  describe('authorization decisions', () => {
+    it('publishes NOTHING when the permit callback returns "drop" (multi-instance silence)', async () => {
+      const permit = vi.fn().mockResolvedValue('drop' as const);
+      const { backend, emit, pool } = makeBackend(permit);
+      backend.start();
+
+      emit(buildRequest('get_public_key', [], 'drop-1'));
+
+      // Wait until the decision has been made, then ensure no response/error frame went out.
+      await vi.waitFor(() => expect(permit).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(pool.publish).not.toHaveBeenCalled();
+    });
+
+    it('still publishes a "Not authorized" error when the callback denies (false)', async () => {
+      const permit = vi.fn().mockResolvedValue(false);
+      const { backend, emit, pool } = makeBackend(permit);
+      backend.start();
+
+      emit(buildRequest('get_public_key', [], 'deny-1'));
+
+      await vi.waitFor(() => expect(pool.publish).toHaveBeenCalledTimes(1));
+      const published = pool.publish.mock.calls[0][0] as Event;
+      const response = JSON.parse(nip44Decrypt(published.content, sharedKey));
+      expect(response.error).toBe('Not authorized');
+    });
+  });
+
   describe('replay protection (sender high-water mark)', () => {
     // A fresh client per test: the sender watermark is a module-level cache keyed by
     // pubkey, so reusing the shared clientPubkey would inherit watermark state from

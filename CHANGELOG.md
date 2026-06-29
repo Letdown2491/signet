@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Android client brought current with the daemon (versionCode 12)**: the Android app, last updated before 1.10.0, now matches the dashboard's recent additions.
+  - **Connect metadata on approval**: a connect request's app URL and the permissions it's requesting (NIP-46 `optional_requested_perms`) are shown on the approval sheet, using the new `appUrl`/`requestedPerms` fields (the same display-hints the dashboard surfaces; the raw metadata blob is no longer shown as "params").
+  - **App avatars + pubkey identicons**: connected apps show a deterministic gradient identicon (anti-spoofing), upgraded to the app's image when present — fetched through the daemon's SSRF-guarded proxy (`GET /apps/:id/avatar`), never the raw URL.
+  - **Sensitive-action cue**: a pending `sign_event` for a sensitive kind (profile, contacts, DMs, deletion, relay list, auth, wallet, NIP-46) now shows an amber warning.
+  - **Aligned trust-level terminology**: "Always Ask / Auto-approve Safe / Auto-approve All" (single-sourced) everywhere — approval, connect, app detail, settings, and badges — replacing the older "Paranoid / Reasonable / Full" and an inaccurate "auto-approve read operations" description.
+  - **`logout` method label**: the NIP-46 `logout` method (added in 1.10.1) now renders as "Disconnect"/"Disconnected" instead of a raw method name.
+  - **HTTPS via a self-hosted CA (StartOS/Start9, Umbrel, reverse proxies)**: the network-security config now also trusts user-installed CAs, so an operator can install their server's root CA on the device and connect to the daemon's HTTPS endpoint. Previously only system CAs were trusted, so these endpoints failed at the TLS handshake.
+  - **Setup advances to the dashboard without a restart**: the daemon-URL setting is now observed reactively (it was a one-shot flow that only emitted once), so completing setup — or editing/clearing the URL in Settings — updates the UI immediately instead of appearing to "do nothing" until the app is force-closed and reopened.
+  - **Connection errors are now visible**: both first-time Setup and the Settings "Save" now test the connection and surface the specific failure (e.g. "Secure connection failed", "Connection refused") instead of silently saving a URL that doesn't work.
+
+### Fixed
+- **Intermittent "Not authorized" when two signers share a key+relays**: a request from a client this instance has no session for (no `KeyUser`) and that isn't a `connect` is now **dropped silently** instead of answered with "Not authorized". Previously, in an active/active deployment (e.g. a Start9 instance plus a local one on the same key and relays), both instances received every request: the one that owned the session signed it while the other instantly emitted "Not authorized" for the same request id, and the client intermittently took the error. Staying silent lets the owning instance answer cleanly (and stops amplifying request floods). Known clients that are genuinely denied (revoked/suspended/explicit deny) still receive "Not authorized". New ACL + backend test coverage. (The `connect` handshake and `paranoid` apps connected to *both* instances remain inherent active/active edge cases — run one instance per key+relay set.)
+
 ## [1.20.0] - 2026-06-28
 
 ### Added

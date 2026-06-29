@@ -51,6 +51,7 @@ import tech.geektoshi.signet.R
 import tech.geektoshi.signet.data.api.SignetApiClient
 import tech.geektoshi.signet.data.repository.SettingsRepository
 import tech.geektoshi.signet.ui.components.QRScannerSheet
+import tech.geektoshi.signet.util.ErrorFormatter
 import tech.geektoshi.signet.ui.theme.BgSecondary
 import tech.geektoshi.signet.ui.theme.BgTertiary
 import tech.geektoshi.signet.ui.theme.BorderDefault
@@ -212,15 +213,16 @@ fun SetupScreen(
                                 error = null
                                 val client = SignetApiClient(url)
                                 try {
-                                    val reachable = client.healthCheck()
-                                    if (reachable) {
-                                        settingsRepository.setDaemonUrl(url)
-                                        onSetupComplete()
-                                    } else {
-                                        error = "Could not reach server. Check the URL and make sure Signet is running."
-                                    }
+                                    // Throwing variant so the real cause surfaces (TLS/cert vs
+                                    // connection-refused vs timeout) instead of a blanket message.
+                                    client.pingHealth()
+                                    settingsRepository.setDaemonUrl(url)
+                                    onSetupComplete()
                                 } catch (e: Exception) {
-                                    error = "Connection failed: ${e.message ?: "Unknown error"}"
+                                    android.util.Log.e("SignetSetup", "Connect to $url failed", e)
+                                    val formatted = ErrorFormatter.format(e)
+                                    error = formatted.action?.let { "${formatted.message} — $it" }
+                                        ?: formatted.message
                                 } finally {
                                     client.close()
                                     isConnecting = false

@@ -110,6 +110,19 @@ Sensitive endpoints are rate-limited to prevent brute-force attacks:
 - Error messages are HTML-escaped before rendering
 - JSON parsing uses safe defaults
 
+### App Avatar Proxy (SSRF Protection)
+
+Connected apps may supply an `image` URL in their NIP-46 connect metadata. This is untrusted, unauthenticated, client-supplied data, so the browser **never** fetches it directly (that would leak the operator's IP and online status to the app's server and trust an attacker-controlled origin). Instead the daemon fetches it server-side (`GET /apps/:id/avatar`, `lib/image-proxy.ts`) under strict constraints:
+
+- **`https:` only** — captured at connect time and re-checked at fetch time.
+- **DNS pinned to a validated public address** — the resolved IP is checked and the socket connects only to that vetted address, closing the DNS-rebinding TOCTOU (TLS still validates the hostname certificate).
+- **Private / loopback / link-local / CGNAT / cloud-metadata IPs blocked** (e.g. `169.254.169.254`, RFC1918, `::1`, ULA, IPv4-mapped equivalents).
+- **No redirects** — any 3xx is treated as a failure, so it can't bounce to an internal target.
+- **5s timeout, 512 KB size cap, and a raster-image content-type allowlist** (`png/jpeg/webp/gif/avif` — no SVG, which can carry active content).
+- **Positive/negative caching** so a hostile or dead URL can't make the daemon hammer a target, and the app's host only periodically learns the daemon is online.
+
+The REST API only ever exposes `hasImage: boolean` (never the raw URL). The dashboard falls back to a deterministic pubkey identicon when an app has no image or the proxy can't serve one.
+
 ## Encryption Details
 
 ### Key Encryption

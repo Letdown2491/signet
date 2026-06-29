@@ -615,6 +615,7 @@ List all connected applications.
       "keyName": "main-key",
       "userPubkey": "hex...",
       "description": "Primal",
+      "hasImage": true,
       "trustLevel": "reasonable",
       "permissions": ["sign_event", "nip04_encrypt"],
       "connectedAt": "2025-01-10T08:00:00.000Z",
@@ -640,6 +641,7 @@ List all connected applications.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `hasImage` | boolean | Whether the app supplied a validated `https` avatar URL at connect time. The URL itself is never exposed — fetch the image via `GET /apps/:id/avatar`. |
 | `suspendedAt` | string \| null | ISO 8601 timestamp when app was suspended, or null if active |
 | `suspendUntil` | string \| null | ISO 8601 timestamp when suspension ends (auto-resume), or null for indefinite |
 
@@ -649,6 +651,16 @@ List all connected applications.
 - `full` - Auto-approve all requests
 
 Note: NIP-04 encryption (`nip04_encrypt`, `nip04_decrypt`) always requires approval at `paranoid` and `reasonable` levels due to privacy sensitivity (legacy DMs).
+
+---
+
+#### `GET /apps/:id/avatar`
+
+Serve the app's client-supplied avatar image, fetched and cached server-side. The browser never contacts the app's image host directly — the daemon proxies it through an SSRF-guarded fetch (`https`-only, DNS pinned to a validated public address, private/loopback/link-local/metadata IPs blocked, no redirects, 5s timeout, 512&nbsp;KB cap, raster content-type allowlist).
+
+**Authentication:** Same as `GET /apps` (cookie-first verification, so an `<img>` tag works in the default network-trust deployment).
+
+**Response:** `200` with the image bytes (`Content-Type` of the fetched image, `Cache-Control: private, max-age=3600`, `X-Content-Type-Options: nosniff`). Returns `404` when the app has no image or the proxy can't serve it (blocked/unreachable/too large/wrong type) — the UI then falls back to the pubkey identicon.
 
 ---
 
