@@ -3,6 +3,9 @@ package tech.geektoshi.signet.ui.components
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -11,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -19,6 +23,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import tech.geektoshi.signet.data.api.SignetApiClient
@@ -69,6 +74,10 @@ fun PubkeyIdenticon(pubkey: String, size: Dp, modifier: Modifier = Modifier) {
  * App avatar with a safe image path. When the app supplied an image (`hasImage`) we load it
  * from the daemon's SSRF-guarded proxy (`GET /apps/:id/avatar`) — never the raw client URL —
  * and fall back to the [PubkeyIdenticon] when there's no image or the proxy returns nothing.
+ *
+ * When [ringColor] is set, the avatar is framed by a status ring/halo of that colour — this
+ * replaces a separate status dot, so the avatar and its connection/suspension state read as
+ * one element (matching the web dashboard).
  */
 @Composable
 fun AppAvatar(
@@ -78,6 +87,7 @@ fun AppAvatar(
     daemonUrl: String?,
     size: Dp,
     modifier: Modifier = Modifier,
+    ringColor: Color? = null,
 ) {
     var bitmap by remember(appId, hasImage, daemonUrl) { mutableStateOf<ImageBitmap?>(null) }
     var failed by remember(appId, hasImage, daemonUrl) { mutableStateOf(false) }
@@ -105,14 +115,23 @@ fun AppAvatar(
     }
 
     val current = bitmap
-    if (hasImage && !failed && current != null) {
-        Image(
-            bitmap = current,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier.size(size).clip(CircleShape),
-        )
-    } else {
-        PubkeyIdenticon(pubkey = pubkey, size = size, modifier = modifier)
+    Box(
+        modifier = if (ringColor != null) {
+            modifier.border(width = 1.5.dp, color = ringColor, shape = CircleShape).padding(3.dp)
+        } else {
+            modifier
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (hasImage && !failed && current != null) {
+            Image(
+                bitmap = current,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(size).clip(CircleShape),
+            )
+        } else {
+            PubkeyIdenticon(pubkey = pubkey, size = size)
+        }
     }
 }

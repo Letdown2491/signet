@@ -1,6 +1,5 @@
 package tech.geektoshi.signet.ui.screens.apps
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Pause
@@ -410,22 +408,16 @@ private fun AppCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Status dot: green = active, gray = suspended
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                color = if (isSuspended) TextMuted else Success,
-                                shape = CircleShape
-                            )
-                    )
                     // App avatar (image via the SSRF-guarded proxy, else pubkey identicon)
+                    // framed by a status ring: green = active, muted = suspended. The ring
+                    // replaces the old separate status dot.
                     AppAvatar(
                         pubkey = app.userPubkey,
                         appId = app.id,
                         hasImage = app.hasImage,
                         daemonUrl = daemonUrl,
-                        size = 28.dp
+                        size = 26.dp,
+                        ringColor = if (isSuspended) TextMuted else Success
                     )
                     Text(
                         text = app.description ?: (app.userPubkey.take(12) + "..."),

@@ -152,11 +152,14 @@ Get relay connection status.
       "url": "wss://relay.primal.net",
       "connected": true,
       "lastConnected": "2025-01-15T10:30:00.000Z",
-      "lastDisconnected": null
+      "lastDisconnected": null,
+      "trustScore": 89
     }
   ]
 }
 ```
+
+`trustScore` is a 0–100 relay reputation from [trustedrelays.xyz](https://trustedrelays.xyz), or `null` when unavailable (unrated relay, or the score hasn't been fetched yet). Scores are fetched on daemon startup and refreshed hourly; the field reflects the daemon's cached value.
 
 ---
 

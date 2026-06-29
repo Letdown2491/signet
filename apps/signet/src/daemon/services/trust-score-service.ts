@@ -37,8 +37,12 @@ export class TrustScoreService {
         this.isRunning = true;
         logger.info('Trust score service started');
 
-        // Fetch scores immediately
-        await this.fetchAllScores();
+        // Fetch scores in the background — the external API can be slow on a cold cache, so
+        // we must not block daemon startup on it. Scores populate asynchronously and the
+        // /relays endpoint serves them as they arrive.
+        void this.fetchAllScores().catch(err => {
+            logger.error('Failed to fetch initial trust scores', { error: toErrorMessage(err) });
+        });
 
         // Schedule periodic refresh
         this.refreshTimer = setInterval(() => {
@@ -130,7 +134,10 @@ export class TrustScoreService {
             const apiUrl = `${API_BASE_URL}?url=${encodeURIComponent(normalizedUrl)}`;
             const response = await fetch(apiUrl, {
                 headers: { 'Accept': 'application/json' },
-                signal: AbortSignal.timeout(10000) // 10 second timeout
+                // trustedrelays.xyz computes scores on a cold cache and can take well over
+                // 10s on the first request for a relay; a tight timeout made every startup
+                // fetch abort and cache a null for an hour. Give it generous headroom.
+                signal: AbortSignal.timeout(30000)
             });
 
             if (!response.ok) {
@@ -150,11 +157,13 @@ export class TrustScoreService {
                 logger.debug('Trust score fetched', { relay: normalizedUrl, score });
             }
         } catch (err) {
+            // A timeout / network error is transient — do NOT cache a null, or the relay
+            // shows "unrated" until the next hourly refresh. Leaving it absent lets the next
+            // refresh (or on-demand lookup) retry it.
             logger.debug('Failed to fetch trust score', {
                 relay: normalizedUrl,
                 error: toErrorMessage(err)
             });
-            this.scores.set(normalizedUrl, null);
         }
     }
 }

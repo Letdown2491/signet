@@ -70,6 +70,9 @@ The signed APK will be at `app/build/outputs/apk/release/signet-<version>-releas
 - **App lock**: Require fingerprint, face, or device PIN to open the app
 - **Timed app suspension**: Suspend apps until a specific date/time with auto-resume
 - **Full request management**: Approve, deny, and review request history
+- **Connection insight on approval**: shows the connecting app's URL and the permissions it requests, plus a warning when an app asks to sign a sensitive event (profile, contacts, DMs, deletion, relay list, auth, wallet)
+- **App avatars**: a deterministic pubkey identicon (anti-impersonation), upgraded to the app's image when available — served via the daemon's SSRF-guarded proxy, framed by a status ring
+- **Relay reputation badges**: relay trust scores from [trustedrelays.xyz](https://trustedrelays.xyz) shown in the system-status and connect screens
 
 ## Architecture
 
@@ -122,16 +125,26 @@ The app requires network access to your Signet daemon. Recommended setups:
 - **Wireguard**: Similar to Tailscale, use the VPN IP
 - **Local LAN**: Use your server's local IP if on the same network
 
-No authentication is required - network-level security (Tailscale/Wireguard) handles access control.
+No authentication is required - network-level security (Tailscale/Wireguard) handles access control. The daemon speaks **HTTP** (it has no TLS of its own); cleartext to a private IP / Tailnet is permitted by the app.
+
+### HTTPS via a self-hosted server (StartOS/Start9, Umbrel, reverse proxy)
+
+If you run Signet behind something that terminates TLS with its **own** Certificate Authority — e.g. StartOS exposes each service at `https://<name>.local:<port>` (or a LAN IP) signed by the server's root CA — the app supports it, but you must trust that CA on the device:
+
+1. **Download the server's root CA** (StartOS: dashboard → System → "Download Root CA"; Umbrel/reverse proxies have an equivalent).
+2. **Install it on the phone:** Android Settings → Security → Encryption & credentials → Install a certificate → **CA certificate** → select the file. (Android warns that a third party can monitor traffic — expected for installing your own server's CA.)
+3. Enter the **full HTTPS URL with the correct port** in the app (e.g. `https://10.0.0.118:59336`). Use the exact address the server lists for the service — the cert is issued for that hostname/IP.
+
+The app trusts user-installed CAs (its network-security config opts in), so once the CA is installed the HTTPS endpoint validates. Without this opt-in Android ignores user CAs entirely, so the connection would fail at the TLS handshake even with the CA installed.
 
 ## Troubleshooting
 
-### "Connection Error" on startup
+### "Connection Error" / "won't connect"
 
 1. Verify the daemon is running (`pnpm run signet start`)
-2. Check the URL in Settings is correct
-3. Ensure your device can reach the daemon (try opening the URL in a browser)
-4. If using Tailscale, ensure both devices are connected
+2. **Check the URL — scheme and port.** Use `http://` for a plain daemon (default port `3000`); use `https://` only behind a TLS terminator, with that service's exact port. A wrong port fails as "connection refused" / nothing happens.
+3. **Open the exact URL in the phone's browser.** If the browser loads it but the app doesn't, it's almost always TLS trust — see "HTTPS via a self-hosted server" above and install the server's root CA. (The browser may let you click through a cert warning; the app cannot.)
+4. If using Tailscale, ensure both devices are connected.
 
 ### App shows stale data
 
