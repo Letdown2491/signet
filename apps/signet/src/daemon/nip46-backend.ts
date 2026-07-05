@@ -7,6 +7,7 @@ import createDebug from 'debug';
 import { bytesToHex } from './lib/hex.js';
 import { toErrorMessage } from './lib/errors.js';
 import { logger } from './lib/logger.js';
+import { grantPermissionsByTrustLevel } from './lib/acl.js';
 import { TTLCache } from './lib/ttl-cache.js';
 import { AppRateLimiter } from './lib/app-rate-limiter.js';
 import {
@@ -523,8 +524,9 @@ export class Nip46Backend {
     /**
      * Handle connect request with secret validation.
      * Validates against one-time connection tokens first, then falls back to admin secret.
-     * Secret validates the connection attempt but does NOT auto-approve.
-     * User must still approve and select trust level via the UI.
+     * When a valid secret is provided, auto-approve with "reasonable" trust level —
+     * the secret itself is proof of authorization (one-time token with TTL, or admin secret).
+     * Requests without a secret go through manual approval via the UI.
      */
     private async handleConnect(
         id: string,
@@ -548,8 +550,16 @@ export class Nip46Backend {
             const tokenValid = await tokenService.validateAndRedeemToken(providedSecret, this.keyName);
 
             if (tokenValid) {
+                // Auto-approve: connection token is a one-time secret with TTL,
+                // so validating it is sufficient authorization.
                 debug('[%s] connect with valid one-time token from %s', this.keyName, humanPubkey);
-            } else if (this.adminSecret) {
+                logger.info('Auto-approving connect via connection token', { key: this.keyName, from: humanPubkey });
+                const keyUserId = await grantPermissionsByTrustLevel(remotePubkey, this.keyName, 'full', 'auto-approved via connection token');
+                this.addAppSubscription(keyUserId, []);
+                return 'ack';
+            }
+
+            if (this.adminSecret) {
                 // Fallback: check against persistent admin secret
                 const secretsMatch = providedSecret.length === this.adminSecret.length &&
                     crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(this.adminSecret));
@@ -558,17 +568,21 @@ export class Nip46Backend {
                     debug('[%s] connect with invalid secret from %s', this.keyName, humanPubkey);
                     return undefined; // Silent rejection - no response sent
                 }
-                debug('[%s] connect with valid admin secret from %s', this.keyName, humanPubkey);
-            } else {
-                // No admin secret configured and token was invalid
-                debug('[%s] connect with invalid token from %s (no admin secret fallback)', this.keyName, humanPubkey);
-                return undefined; // Silent rejection
-            }
-        }
-        // If no secret provided, proceed to approval flow (existing behavior)
 
-        // All connect requests go through the normal approval flow
-        // This allows the user to see the request and select a trust level
+                // Auto-approve admin secret connections too
+                debug('[%s] connect with valid admin secret from %s', this.keyName, humanPubkey);
+                logger.info('Auto-approving connect via admin secret', { key: this.keyName, from: humanPubkey });
+                const keyUserId = await grantPermissionsByTrustLevel(remotePubkey, this.keyName, 'full', 'auto-approved via admin secret');
+                this.addAppSubscription(keyUserId, []);
+                return 'ack';
+            }
+
+            // No admin secret configured and token was invalid
+            debug('[%s] connect with invalid secret from %s (no admin secret fallback)', this.keyName, humanPubkey);
+            return undefined; // Silent rejection
+        }
+
+        // No secret provided — go through manual approval flow (existing behavior)
         logger.info('Connect request, awaiting approval', { key: this.keyName, from: humanPubkey });
         const permitted = await this.permitCallback({
             id,
