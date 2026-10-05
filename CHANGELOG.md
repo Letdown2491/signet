@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+- **The admin secret was written to the daemon log on every startup**: the `Connection URI generated` line logged the full `bunker://` URI, including the `secret=` query parameter. That secret is a long-lived credential — it identifies a connecting client as someone holding the deployment's connection URI (an operator still approves every first-time connection, so it does not grant access on its own) — and daemon logs are routinely collected, shipped off-host, and pasted into issues. The logged URI now has the secret value redacted (`secret=<redacted>`); the full URI continues to be written to `connection.txt` in the owner-only config directory, where it is actually needed.
+
 ## [1.20.0] - 2026-06-28
 
 ### Added

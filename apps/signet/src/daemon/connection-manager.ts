@@ -153,6 +153,15 @@ export class ConnectionManager {
         await this.pool.publish(event);
     }
 
+    /**
+     * Strip the `secret` query parameter so a bunker URI can be written to logs.
+     * `buildBunkerUri` prepends `?` or `&` depending on whether relay parameters
+     * are present, so match either separator.
+     */
+    private redactBunkerSecret(uri: string): string {
+        return uri.replace(/([?&]secret=)[^&]*/i, '$1<redacted>');
+    }
+
     private writeConnectionStrings(): void {
         const relays = this.resolveConnectionRelays();
         // Emit the secret exactly as stored. The backend compares it byte-for-byte
@@ -164,7 +173,11 @@ export class ConnectionManager {
         const hexUri = this.buildBunkerUri(this.pubkey, relays, secret);
         const npubUri = this.buildBunkerUri(npub, relays, secret);
 
-        logger.info('Connection URI generated', { uri: hexUri });
+        // The URI embeds the admin secret, which is a long-lived credential:
+        // never write it to daemon logs, which are routinely collected and
+        // shared. The full URI is still written to connection.txt below, where
+        // an operator actually needs it.
+        logger.info('Connection URI generated', { uri: this.redactBunkerSecret(hexUri) });
 
         const folder = path.dirname(this.configFile);
         fs.mkdirSync(folder, { recursive: true });
