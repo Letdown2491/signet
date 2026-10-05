@@ -159,12 +159,22 @@ Require JWT authentication for all API endpoints.
 
 - **Type**: boolean
 - **Default**: `false`
+- **Setting it to `true` stops the daemon from starting.**
 
-When `false` (default), the API is open for local development. Set to `true` for production deployments where you want to enforce authentication.
+**This flag cannot currently be enabled.** The JWT scaffolding exists (HS256 signing, `jwtSecret`, cookie helpers, CSRF/CORS hooks), but no endpoint issues a token, so there is no way to log in. To avoid silently locking an operator out of their own signer, the daemon checks this flag at startup and refuses to start when it is `true`:
+
+```
+requireAuth is set to true, but application-layer authentication (JWT login)
+is not implemented in this build — it would lock out all access. Signet is
+designed for private-network deployment: secure it with network isolation
+(loopback bind, Tailscale ACLs, or a firewall) and set requireAuth to false.
+```
+
+Leave it `false` and secure the network path instead: bind the daemon to loopback (see [DEPLOYMENT.md](DEPLOYMENT.md)) and reach the UI only over a VPN, an SSH tunnel, or a reverse proxy that authenticates. See [SECURITY.md](SECURITY.md) for the full model. UI authentication is being explored separately (#36).
 
 ```json
 {
-  "requireAuth": true
+  "requireAuth": false
 }
 ```
 
