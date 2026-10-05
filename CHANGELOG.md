@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **`docker compose run signet add ...` failed with `database is locked` on a running instance**: the container entrypoint ran `prisma migrate deploy` for *every* invocation, but migrations need SQLite's write lock, which the live daemon holds — so importing a key (or running any other one-off subcommand) was impossible without stopping the stack first. The pre-migration snapshot and the migration step now run only for `start`; other subcommands log `Skipping database migrations (command: ...)`. Because the entrypoint uses `set -e`, the previous failure aborted before the requested subcommand ran, so no partial state was ever written.
+
 ## [1.20.0] - 2026-06-28
 
 ### Added
