@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **`signet add --no-encrypt` was unusable** — the flag failed with `Unknown argument: encrypt`. yargs implements `--no-*` as boolean negation, so an option declared literally as `no-encrypt` can never be reached: `--no-encrypt` arrives as `encrypt: false`, and strict mode rejects the name it actually received. The option is now declared as `encrypt` (default `true`), so `--no-encrypt` sets it to `false` as intended. Contradictory combinations (`--no-encrypt` with `--nip49`/`--legacy`) are now rejected explicitly, since `conflicts` can no longer express them (the option always carries the default). Previously the only way to store an unencrypted key — the option needed for a daemon that must start unattended, since an encrypted key requires an interactive passphrase or a manual UI unlock on every restart — was to skip the flags and answer the interactive prompt.
+
 ## [1.20.0] - 2026-06-28
 
 ### Added

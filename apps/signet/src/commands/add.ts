@@ -42,6 +42,16 @@ export async function addKey(options: AddKeyOptions): Promise<void> {
         });
 
     try {
+        // An explicit encryption flag combined with --no-encrypt is
+        // contradictory. This used to be caught by yargs `conflicts`, but the
+        // flag is now declared as `encrypt` (default true) so that yargs'
+        // boolean negation makes `--no-encrypt` reachable — which means it is
+        // always present in argv and can no longer participate in `conflicts`.
+        if (options.noEncrypt && (options.useNip49 || options.useLegacy)) {
+            console.error('Cannot combine --no-encrypt with --nip49 or --legacy.');
+            process.exit(1);
+        }
+
         const secret = await ask(`nsec or ncryptsec for ${options.keyName}: `);
         const trimmedSecret = secret.trim();
 

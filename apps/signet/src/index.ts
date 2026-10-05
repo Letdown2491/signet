@@ -29,26 +29,36 @@ async function main() {
                         demandOption: true,
                         describe: 'Key label to store the key under',
                     })
-                    .option('no-encrypt', {
+                    // Declared as `encrypt` with a default of `true` rather than
+                    // as `no-encrypt`. yargs implements `--no-*` as boolean
+                    // negation, so an option literally named `no-encrypt` can
+                    // never be reached: `--no-encrypt` is parsed as
+                    // `encrypt: false`, and strict mode then rejects the name it
+                    // actually received ("Unknown argument: encrypt").
+                    // Contradictory flag combinations are rejected in
+                    // commands/add.ts, since `conflicts` can no longer express
+                    // them (this option always has a value).
+                    .option('encrypt', {
                         type: 'boolean',
-                        describe: 'Store key without encryption (not recommended)',
-                        conflicts: ['nip49', 'legacy'],
+                        default: true,
+                        describe:
+                            'Encrypt the stored key (use --no-encrypt to store it unencrypted; not recommended)',
                     })
                     .option('nip49', {
                         type: 'boolean',
                         describe: 'Use NIP-49 encryption (recommended)',
-                        conflicts: ['no-encrypt', 'legacy'],
+                        conflicts: ['legacy'],
                     })
                     .option('legacy', {
                         type: 'boolean',
                         describe: 'Use legacy AES-256-GCM encryption',
-                        conflicts: ['no-encrypt', 'nip49'],
+                        conflicts: ['nip49'],
                     }),
             async (argv) => {
                 await addKey({
                     configPath: argv.config as string,
                     keyName: argv.name as string,
-                    noEncrypt: argv['no-encrypt'] as boolean | undefined,
+                    noEncrypt: argv.encrypt === false,
                     useNip49: argv.nip49 as boolean | undefined,
                     useLegacy: argv.legacy as boolean | undefined,
                 });
