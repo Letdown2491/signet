@@ -349,6 +349,24 @@ export async function generateConnectionToken(keyName: string): Promise<{
 }
 
 /**
+ * Get the current one-time bunker token lifetime (minutes).
+ */
+export async function getBunkerTokenExpiryMinutes(): Promise<{ minutes: number }> {
+  return apiGet('/settings/bunker-token-expiry');
+}
+
+/**
+ * Set the one-time bunker token lifetime (minutes).
+ */
+export async function setBunkerTokenExpiryMinutes(minutes: number): Promise<{
+  ok: boolean;
+  minutes: number;
+  error?: string;
+}> {
+  return apiPut('/settings/bunker-token-expiry', { minutes });
+}
+
+/**
  * Lock an active key, removing it from memory.
  * The key remains encrypted on disk; all apps and permissions are preserved.
  */

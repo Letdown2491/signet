@@ -1,9 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import type { TrustLevel, KeyInfo, RelayStatusResponse } from '@signet/types';
 import { Loader2 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext.js';
 import { getTrustLevelInfo } from '../../lib/event-labels.js';
 import { useDeadManSwitch } from '../../hooks/useDeadManSwitch.js';
+import {
+  getBunkerTokenExpiryMinutes,
+  setBunkerTokenExpiryMinutes,
+} from '../../lib/api-client.js';
 import { RelayManager } from './RelayManager.js';
 import styles from './SettingsPanel.module.css';
 
@@ -65,6 +69,50 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const { settings, updateSettings } = useSettings();
   const deadman = useDeadManSwitch();
+
+  // One-time bunker token lifetime
+  const [tokenExpiry, setTokenExpiry] = useState<{ value: number; unit: TimeUnit } | null>(null);
+  const [teLoading, setTeLoading] = useState(true);
+  const [teSaving, setTeSaving] = useState(false);
+  const [teError, setTeError] = useState<string | null>(null);
+  const [teSaved, setTeSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await getBunkerTokenExpiryMinutes();
+        if (!cancelled) setTokenExpiry(secondsToValueUnit(r.minutes * 60));
+      } catch {
+        if (!cancelled) setTeError('Could not load the current value');
+      } finally {
+        if (!cancelled) setTeLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveTokenExpiry = useCallback(async () => {
+    if (!tokenExpiry) return;
+    setTeSaving(true);
+    setTeError(null);
+    setTeSaved(false);
+    const minutes = Math.max(
+      1,
+      Math.round((tokenExpiry.value * TIME_UNIT_SECONDS[tokenExpiry.unit]) / 60)
+    );
+    const r = await setBunkerTokenExpiryMinutes(minutes);
+    setTeSaving(false);
+    if (r.ok) {
+      setTokenExpiry(secondsToValueUnit(r.minutes * 60));
+      setTeSaved(true);
+    } else {
+      setTeError(r.error ?? 'Failed to save');
+    }
+  }, [tokenExpiry]);
 
   // DMS state
   const [dmsLoading, setDmsLoading] = useState(false);
@@ -261,6 +309,70 @@ export function SettingsPanel({
             </label>
           ) : (
             <span className={styles.unsupported}>No encrypted key</span>
+          )}
+        </div>
+      </div>
+
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Connection tokens</h3>
+        <div className={styles.setting}>
+          <div className={styles.settingInfo}>
+            <span className={styles.settingLabel}>Bunker URI lifetime</span>
+            <span className={styles.settingDescription}>
+              How long a one-time bunker:// connection token stays valid. If it expires before the
+              client is paired, generate a fresh one.
+            </span>
+          </div>
+          {teLoading ? (
+            <span>Loading…</span>
+          ) : (
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-start' }}
+            >
+              <div className={styles.durationInput}>
+                <input
+                  type="number"
+                  min="1"
+                  value={tokenExpiry?.value ?? 5}
+                  onChange={(e) =>
+                    setTokenExpiry({
+                      value: Math.max(1, parseInt(e.target.value, 10) || 1),
+                      unit: tokenExpiry?.unit ?? 'minutes',
+                    })
+                  }
+                  disabled={teSaving}
+                  className={styles.durationValue}
+                  aria-label="Connection token lifetime value"
+                />
+                <select
+                  value={tokenExpiry?.unit ?? 'minutes'}
+                  onChange={(e) =>
+                    setTokenExpiry({
+                      value: tokenExpiry?.value ?? 5,
+                      unit: e.target.value as TimeUnit,
+                    })
+                  }
+                  disabled={teSaving}
+                  className={styles.durationUnit}
+                  aria-label="Time unit"
+                >
+                  <option value="minutes">minutes</option>
+                  <option value="hours">hours</option>
+                  <option value="days">days</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => void saveTokenExpiry()}
+                  disabled={teSaving}
+                  className={styles.btnPrimary}
+                >
+                  {teSaving ? 'Saving…' : teSaved ? 'Saved ✓' : 'Save'}
+                </button>
+                {teError && <span className={styles.formError}>{teError}</span>}
+              </div>
+            </div>
           )}
         </div>
       </div>

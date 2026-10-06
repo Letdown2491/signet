@@ -22,6 +22,7 @@ import { registerPoliciesRoutes } from './routes/policies.js';
 import { registerEventsRoutes } from './routes/events.js';
 import { registerNostrconnectRoutes } from './routes/nostrconnect.js';
 import { registerDeadManSwitchRoutes } from './routes/dead-man-switch.js';
+import { registerSettingsRoutes } from './routes/settings.js';
 import { registerLogsRoutes } from './routes/logs.js';
 import type { KeyService, RequestService, AppService, DashboardService, EventService, RelayService } from '../services/index.js';
 import type { ConnectionManager } from '../connection-manager.js';
@@ -239,6 +240,12 @@ export class HttpServer {
 
         // Dead man's switch routes (state-changing, needs CSRF)
         registerDeadManSwitchRoutes(this.fastify, {
+            auth: [authMiddleware],
+            csrf: [csrfMiddleware],
+        });
+
+        // Settings routes (state-changing, needs CSRF)
+        registerSettingsRoutes(this.fastify, {
             auth: [authMiddleware],
             csrf: [csrfMiddleware],
         });

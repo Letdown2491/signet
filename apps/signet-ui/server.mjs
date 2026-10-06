@@ -53,7 +53,8 @@ const apiPaths = [
   '/policies',
   '/csrf-token',
   '/nostrconnect',
-  '/dead-man-switch'
+  '/dead-man-switch',
+  '/settings'
 ];
 
 // SSE proxy for /events endpoint (no timeout, streaming)

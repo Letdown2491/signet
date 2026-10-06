@@ -1,7 +1,27 @@
 import crypto from 'crypto';
 import prisma from '../../db.js';
+import { settingsRepository } from '../repositories/settings-repository.js';
 
+// Lifetime (minutes) of a one-time `bunker://` connection token. Resolved at call
+// time with precedence: the operator-settable `bunkerTokenExpiryMinutes` setting
+// in the DB (changed from the Settings UI / PUT /settings/bunker-token-expiry),
+// then SIGNET_BUNKER_TOKEN_EXPIRY_MINUTES (env, for container deployments), then
+// 5 minutes. Invalid or non-positive values fall through to the next source.
 const DEFAULT_EXPIRY_MINUTES = 5;
+
+function toValidMinutes(value: unknown): number | null {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export async function resolveBunkerTokenExpiryMinutes(): Promise<number> {
+    const dbValue = await settingsRepository.get('bunkerTokenExpiryMinutes');
+    return (
+        toValidMinutes(dbValue) ??
+        toValidMinutes(process.env.SIGNET_BUNKER_TOKEN_EXPIRY_MINUTES) ??
+        DEFAULT_EXPIRY_MINUTES
+    );
+}
 
 export interface ConnectionTokenResult {
     token: string;
@@ -16,9 +36,10 @@ export class ConnectionTokenService {
     /**
      * Create a new one-time connection token.
      */
-    async createToken(keyName: string, expiryMinutes: number = DEFAULT_EXPIRY_MINUTES): Promise<ConnectionTokenResult> {
+    async createToken(keyName: string, expiryMinutes?: number): Promise<ConnectionTokenResult> {
         const token = crypto.randomBytes(32).toString('hex');
-        const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+        const minutes = expiryMinutes ?? await resolveBunkerTokenExpiryMinutes();
+        const expiresAt = new Date(Date.now() + minutes * 60 * 1000);
 
         await prisma.connectionToken.create({
             data: {
